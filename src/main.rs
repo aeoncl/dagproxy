@@ -138,23 +138,22 @@ fn main() {
                                             //                            println!("{}", from_utf8(&data).unwrap());
 
                                         //HTTP 1.1 CONNECT HEADER
-                                        if data.starts_with(b"CONNECT ") {
+                                        if data.starts_with(b"CONNECT ") || data.starts_with(b"GET "){
                                             let connect_body = String::from_utf8_lossy(&data[0..bytes_read]);
 
                                             let mut split = connect_body.split_whitespace();
                                             let url = split.nth(1).unwrap().to_owned();
                                             let http_version = split.nth(0).unwrap();
 
-                                            println!("Connecting to {} with {}", url, http_version);
 
                                             match network_handle_clone.network_type() {
                                                 NetworkType::Direct => {
-                                                    println!("Network is direct.");
+                                                    println!("Connecting to {} with {}", url, http_version);
                                                     dest_socket = Some(TcpStream::connect(&url).await.unwrap());
                                                     source_socket.write_all(b"CONNECT").await.unwrap();
                                                 },
                                                 NetworkType::Proxied => {
-                                                    println!("Network is proxied.");
+                                                    println!("Connecting to {} -> {} with {}", &upstream_proxy_clone, url, http_version);
                                                     let mut socket = TcpStream::connect(&upstream_proxy_clone).await.unwrap();
                                                     socket.write_all(data).await.unwrap();
                                                     dest_socket = Some(socket);
