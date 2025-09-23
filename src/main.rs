@@ -1,8 +1,9 @@
 mod network;
 
 use netaddr2::{Contains, Netv4Addr};
-use std::env;
+use std::{env, io};
 use std::error::Error;
+use std::io::ErrorKind;
 use std::str::{from_utf8, FromStr};
 use std::thread::sleep;
 use std::time::Duration;
@@ -65,7 +66,10 @@ fn main() {
             .unwrap();
 
         loop {
-            let (mut tcp_stream, _) = listener.accept().await.unwrap();
+            let (mut source_socket, _) = listener.accept().await.unwrap();
+
+            let mut dest_socket: Option<TcpStream> = Option::None;
+
 
             let (source_sender, mut source_receiver) = tokio::sync::mpsc::channel::<Bytes>(200);
 
@@ -86,17 +90,22 @@ fn main() {
 
                 loop {
 
-                    let mut source_read_buffer = [0; 1024];
+                    let mut source_read_buffer = [0; 2048];
+                    let mut dest_read_buffer = [0; 2048];
 
                     tokio::select! {
-                        from_destination = source_receiver.recv() => {
-                            if let Some(data) = from_destination {
-                                //println!("Sending data to source");
-                                tcp_stream.write_all(&data).await.unwrap();
 
+                       from_destination = async { dest_socket.as_mut().unwrap().read(&mut dest_read_buffer).await }, if dest_socket.is_some() => {
+                            if let Ok(bytes_read) = from_destination {
+                                if bytes_read == 0 {
+                                    break;
+                                }
+                                let data = &dest_read_buffer[..bytes_read];
+                                source_socket.write_all(&data).await.unwrap();
                             }
+
                         }
-                        from_source = tcp_stream.read(&mut source_read_buffer) => {
+                        from_source = source_socket.read(&mut source_read_buffer) => {
                             if let Ok(bytes_read) = from_source {
 
                                 if bytes_read == 0 {
@@ -118,52 +127,13 @@ fn main() {
 
                                             println!("Connecting to {} with {}", url, http_version);
 
-                                            let source_sender_clone = source_sender.clone();
-                                            let (destination_sender, mut destination_receiver) = tokio::sync::mpsc::channel::<Bytes>(200);
                                             let url_clone = url.clone();
 
-                                            tokio::spawn(async move {
-                                                let mut forward_socket = TcpStream::connect(url_clone).await.unwrap();
+                                            dest_socket = Some(TcpStream::connect(url_clone).await.unwrap());
 
-
-                                                let mut dest_read_buffer = [0; 1024];
-                                                loop {
-
-                                                    tokio::select! {
-                                                        from_destination = forward_socket.read(&mut dest_read_buffer) => {
-                                                             if let Ok(bytes_read) = from_destination {
-
-                                                                if bytes_read == 0 {
-                                                                    break;
-                                                                }
-
-                                                                let data = &dest_read_buffer[..bytes_read];
-                                                                match source_sender_clone.send(Bytes::copy_from_slice(&data)).await {
-                                                                    Ok(_) => {},
-                                                                    Err(e)  => {
-                                                                        println!("Error sending data to source: {}", e);
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        to_destination = destination_receiver.recv() => {
-                                                            if let Some(data) = to_destination {
-                                                                forward_socket.write_all(&data).await.unwrap();
-                                                            }
-                                                        }
-
-                                                    }
-
-
-
-                                                }
-                                            });
-
-
-
-                                            source_sender.send(Bytes::from_static(b"CONNECT")).await.unwrap();
+                                            source_socket.write_all(b"CONNECT").await.unwrap();
                                             connection_state =
-                                                ConnectionState::Forwarding(url, destination_sender);
+                                                ConnectionState::Forwarding(url);
                                         } else {
                                             //Unexpected data received. //TODO close socket.
                                             println!(
@@ -172,13 +142,8 @@ fn main() {
                                             );
                                         }
                                     }
-                                    ConnectionState::Forwarding(target, dest_sender) => {
-                                        match dest_sender.send(Bytes::copy_from_slice(data)).await {
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                println!("Error sending data to destination: {}", e);
-                                            }
-                                        }
+                                    ConnectionState::Forwarding(target) => {
+                                        dest_socket.as_mut().unwrap().write_all(&data).await.unwrap();
                                     }
                                 }
 
@@ -195,5 +160,5 @@ fn main() {
 
 enum ConnectionState {
     Initializing,
-    Forwarding(String, Sender<Bytes>),
+    Forwarding(String),
 }
