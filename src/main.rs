@@ -4,6 +4,7 @@ use netaddr2::{Contains, Netv4Addr};
 use std::{env, io};
 use std::error::Error;
 use std::io::ErrorKind;
+use std::net::ToSocketAddrs;
 use std::str::{from_utf8, FromStr};
 use std::thread::sleep;
 use std::time::Duration;
@@ -137,39 +138,50 @@ fn main() {
                                     ConnectionState::Initializing => {
                                             //                            println!("{}", from_utf8(&data).unwrap());
 
-                                        //HTTP 1.1 CONNECT HEADER
-                                        if data.starts_with(b"CONNECT ") {
-                                            let connect_body = String::from_utf8_lossy(&data[0..bytes_read]);
+                                        match parse_host(&data)  {
+                                            Ok(RequestType::Connect(host)) => {
 
-                                            let mut split = connect_body.split_whitespace();
-                                            let url = split.nth(1).unwrap().to_owned();
-                                            let http_version = split.nth(0).unwrap();
+                                                match network_handle_clone.network_type() {
+                                                    NetworkType::Direct => {
+                                                        println!("Connecting to {}", &host);
+                                                        dest_socket = Some(TcpStream::connect(&host).await.unwrap());
+                                                        source_socket.write_all(b"CONNECT").await.unwrap();
+                                                    },
+                                                    NetworkType::Proxied => {
+                                                        println!("Connecting to {} -> {}", &upstream_proxy_clone, &host);
+                                                        let mut socket = TcpStream::connect(&upstream_proxy_clone).await.unwrap();
+                                                        socket.write_all(data).await.unwrap();
+                                                        dest_socket = Some(socket);
+                                                    }
+                                                }
 
+                                                connection_state = ConnectionState::Forwarding(host);
+                                            },
+                                            Ok(RequestType::Other(host)) => {
 
-                                            match network_handle_clone.network_type() {
-                                                NetworkType::Direct => {
-                                                    println!("Connecting to {} with {}", url, http_version);
-                                                    dest_socket = Some(TcpStream::connect(&url).await.unwrap());
-                                                    source_socket.write_all(b"CONNECT").await.unwrap();
-                                                },
-                                                NetworkType::Proxied => {
-                                                    println!("Connecting to {} -> {} with {}", &upstream_proxy_clone, url, http_version);
-                                                    let mut socket = TcpStream::connect(&upstream_proxy_clone).await.unwrap();
-                                                    socket.write_all(data).await.unwrap();
-                                                    dest_socket = Some(socket);
+                                              match network_handle_clone.network_type() {
+                                                    NetworkType::Direct => {
+                                                        println!("Connecting to {}", &host);
+                                                        let mut socket = TcpStream::connect(&host).await.unwrap();
+                                                        socket.write_all(data).await.unwrap();
+                                                        dest_socket = Some(socket);                                                    },
+                                                    NetworkType::Proxied => {
+                                                        println!("Connecting to {} -> {}", &upstream_proxy_clone, &host);
+                                                        let mut socket = TcpStream::connect(&upstream_proxy_clone).await.unwrap();
+                                                        socket.write_all(data).await.unwrap();
+                                                        dest_socket = Some(socket);
+                                                    }
                                                 }
                                             }
-
-                                            connection_state =
-                                                ConnectionState::Forwarding(url);
-                                        } else {
-                                            //Unexpected data received. //TODO close socket.
-                                            println!(
+                                            _ => {
+                                                println!(
                                                 "Unexpected data received: {}",
                                                 String::from_utf8_lossy(&data)
                                             );
+                                            }
                                         }
                                     }
+
                                     ConnectionState::Forwarding(target) => {
                                         dest_socket.as_mut().unwrap().write_all(&data).await.unwrap();
                                     }
@@ -185,6 +197,50 @@ fn main() {
         }
     });
 }
+
+
+fn parse_host(data: &[u8]) -> Result<RequestType, anyhow::Error> {
+
+    if data.starts_with(b"CONNECT ") {
+        let connect_body = String::from_utf8_lossy(&data);
+        let mut split = connect_body.split_whitespace();
+        let host = split.nth(1).unwrap().to_owned();
+        Ok(RequestType::Connect(host))
+    } else {
+
+        let mut headers = [httparse::EMPTY_HEADER; 16];
+        let mut req = httparse::Request::new(&mut headers);
+        let res = req.parse(data)?;
+
+        let path = req.path.unwrap();
+
+        let default_port = { if path.starts_with("https") {
+                "443".to_owned()
+            } else {
+                "80".to_owned()
+            }
+
+        };
+
+
+        let mut host = req.headers.iter()
+            .find_map(|header| { if header.name == "Host" { Some(String::from_utf8_lossy(header.value).into_owned()) } else {None} })
+            .ok_or_else(|| anyhow::anyhow!("No host header found"))?;
+
+        if !host.contains(":") {
+            host = format!("{}:{}", host, default_port)
+        };
+
+        Ok(RequestType::Other(host))
+
+    }
+}
+
+enum RequestType {
+    Connect(String),
+    Other(String)
+}
+
 
 enum ConnectionState {
     Initializing,
