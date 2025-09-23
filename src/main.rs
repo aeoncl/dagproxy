@@ -14,6 +14,7 @@ use http_body_util::BodyExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
 use tokio::sync::mpsc::Sender;
+use crate::network::NetworkType;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -76,13 +77,15 @@ fn main() {
             let network_handle_clone = network_handle.clone();
             let upstream_proxy_clone = upstream_proxy.clone().unwrap();
 
+            let mut network_updates_receiver = network_handle_clone.subscribe();
+
+            //drop initial value
+            network_updates_receiver.mark_unchanged();
             // state: dest unknown
             //HTTP CONNECT url
             //
             // dest
             //
-
-
             let _ = tokio::spawn(async move {
                 let mut connection_state = ConnectionState::Initializing;
 
@@ -93,8 +96,25 @@ fn main() {
                     let mut source_read_buffer = [0; 2048];
                     let mut dest_read_buffer = [0; 2048];
 
+
+
+
                     tokio::select! {
 
+                       network_update = network_updates_receiver.changed() => {
+                            if let Ok(_) = network_update {
+                               let test = network_updates_receiver.borrow_and_update().clone();
+                                println!("Network has changed, closing connection.");
+                                match test {
+                                    NetworkType::Direct => {
+                                        break;
+                                    },
+                                    NetworkType::Proxied => {
+                                        break;
+                                    }
+                                }
+                            }
+                            }
                        from_destination = async { dest_socket.as_mut().unwrap().read(&mut dest_read_buffer).await }, if dest_socket.is_some() => {
                             if let Ok(bytes_read) = from_destination {
                                 if bytes_read == 0 {
@@ -127,11 +147,20 @@ fn main() {
 
                                             println!("Connecting to {} with {}", url, http_version);
 
-                                            let url_clone = url.clone();
+                                            match network_handle_clone.network_type() {
+                                                NetworkType::Direct => {
+                                                    println!("Network is direct.");
+                                                    dest_socket = Some(TcpStream::connect(&url).await.unwrap());
+                                                    source_socket.write_all(b"CONNECT").await.unwrap();
+                                                },
+                                                NetworkType::Proxied => {
+                                                    println!("Network is proxied.");
+                                                    let mut socket = TcpStream::connect(&upstream_proxy_clone).await.unwrap();
+                                                    socket.write_all(data).await.unwrap();
+                                                    dest_socket = Some(socket);
+                                                }
+                                            }
 
-                                            dest_socket = Some(TcpStream::connect(url_clone).await.unwrap());
-
-                                            source_socket.write_all(b"CONNECT").await.unwrap();
                                             connection_state =
                                                 ConnectionState::Forwarding(url);
                                         } else {
