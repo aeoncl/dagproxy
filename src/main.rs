@@ -1,193 +1,199 @@
 mod network;
 
-use std::arch::x86_64::_MM_FROUND_RAISE_EXC;
-use std::convert::Infallible;
-use crate::network::{NetworkType, NetworkWatchHandle};
-use hyper_util::server::conn::auto::Builder;
 use netaddr2::{Contains, Netv4Addr};
 use std::env;
 use std::error::Error;
-use std::str::FromStr;
-use hyper::body::{Bytes, Incoming};
-use hyper::{body, Request, Response, Version};
-use hyper::client::conn::http1;
-use hyper::http::uri::Scheme;
-use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use tokio::net::{TcpListener, TcpStream};
+use std::str::{from_utf8, FromStr};
+use std::thread::sleep;
+use std::time::Duration;
+use bytes::{Bytes, BytesMut};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
+use http_body_util::BodyExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
-use tokio::runtime::Handle;
-use http_body_util::{BodyExt, Empty, Full};
-use http_body_util::combinators::BoxBody;
-use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
+use tokio::sync::mpsc::Sender;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let upstream_proxy = args
-        .windows(2)
-        .find_map(|window| if window[0] == "--upstream-proxy" { Some(window[1].to_owned()) } else { None } );
+    let upstream_proxy = args.windows(2).find_map(|window| {
+        if window[0] == "--upstream-proxy" {
+            Some(window[1].to_owned())
+        } else {
+            None
+        }
+    });
 
     let port = args
         .windows(2)
-        .find_map(|window| if window[0] == "--port" { Some(window[1].to_owned()) } else { None } )
+        .find_map(|window| {
+            if window[0] == "--port" {
+                Some(window[1].to_owned())
+            } else {
+                None
+            }
+        })
         .unwrap_or("3232".into());
 
-    let corporate_subnets = args
-        .windows(2)
-        .find_map(|window| if window[0] == "--corporate-subnets" {
-            let subnets = window[1].split(",")
-                    .map(|subnet| Netv4Addr::from_str(subnet).unwrap())
-                    .collect::<Vec<_>>();
+    let corporate_subnets = args.windows(2).find_map(|window| {
+        if window[0] == "--corporate-subnets" {
+            let subnets = window[1]
+                .split(",")
+                .map(|subnet| Netv4Addr::from_str(subnet).unwrap())
+                .collect::<Vec<_>>();
             Some(subnets)
-        } else { None } );
+        } else {
+            None
+        }
+    });
 
     let corporate_subnets = corporate_subnets.unwrap();
 
-
-    let rt = runtime::Builder::new_current_thread()
+    let rt = runtime::Builder::new_multi_thread()
         .enable_all()
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     rt.block_on(async move {
         println!("Starting DagProxy");
 
         let network_handle = network::watch_networks(corporate_subnets);
 
-
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await.unwrap();
-
-        let https_connector = HttpsConnectorBuilder::new()
-            .with_native_roots().unwrap()
-            .https_or_http()
-            .enable_http1()
-            .build();
-
-
-        let client: Client<_, Incoming> = Client::builder(TokioExecutor::new()).build(https_connector);
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
 
         loop {
-            
-            let (socket, _) = listener.accept().await.unwrap();
+            let (mut tcp_stream, _) = listener.accept().await.unwrap();
+
+            let (source_sender, mut source_receiver) = tokio::sync::mpsc::channel::<Bytes>(200);
+
             let network_handle_clone = network_handle.clone();
             let upstream_proxy_clone = upstream_proxy.clone().unwrap();
-            let client_clone = client.clone();
 
             // state: dest unknown
             //HTTP CONNECT url
             //
             // dest
-            // 
-            
-            tokio::spawn(async move {
-                handle_client(socket, &upstream_proxy_clone, network_handle_clone, client_clone).await;
-            });
-
-        }
-
-    });
+            //
 
 
+            let _ = tokio::spawn(async move {
+                let mut connection_state = ConnectionState::Initializing;
+
+                //println!("New connection");
+
+                loop {
+
+                    let mut source_read_buffer = [0; 1024];
+
+                    tokio::select! {
+                        from_destination = source_receiver.recv() => {
+                            if let Some(data) = from_destination {
+                                //println!("Sending data to source");
+                                tcp_stream.write_all(&data).await.unwrap();
+
+                            }
+                        }
+                        from_source = tcp_stream.read(&mut source_read_buffer) => {
+                            if let Ok(bytes_read) = from_source {
+
+                                if bytes_read == 0 {
+                                    break;
+                                }
+
+                                let data = &source_read_buffer[..bytes_read];
+                                match &mut connection_state {
+                                    ConnectionState::Initializing => {
+                                            //                            println!("{}", from_utf8(&data).unwrap());
+
+                                        //HTTP 1.1 CONNECT HEADER
+                                        if data.starts_with(b"CONNECT ") {
+                                            let connect_body = String::from_utf8_lossy(&data[0..bytes_read]);
+
+                                            let mut split = connect_body.split_whitespace();
+                                            let url = split.nth(1).unwrap().to_owned();
+                                            let http_version = split.nth(0).unwrap();
+
+                                            println!("Connecting to {} with {}", url, http_version);
+
+                                            let source_sender_clone = source_sender.clone();
+                                            let (destination_sender, mut destination_receiver) = tokio::sync::mpsc::channel::<Bytes>(200);
+                                            let url_clone = url.clone();
+
+                                            tokio::spawn(async move {
+                                                let mut forward_socket = TcpStream::connect(url_clone).await.unwrap();
 
 
-}
+                                                let mut dest_read_buffer = [0; 1024];
+                                                loop {
 
-async fn handle_client(mut socket: TcpStream, upstream_proxy: &str, network_watch_handle: NetworkWatchHandle, client_clone: Client<HttpsConnector<HttpConnector>, Incoming>) {
-    let socket = TokioIo::new(socket);
+                                                    tokio::select! {
+                                                        from_destination = forward_socket.read(&mut dest_read_buffer) => {
+                                                             if let Ok(bytes_read) = from_destination {
 
-    let service = service_fn(move |request: Request<body::Incoming>|{
-        let watch_handle = network_watch_handle.clone();
-        let client_clone = client_clone.clone();
-        async move {
-        // Here you can access the request
+                                                                if bytes_read == 0 {
+                                                                    break;
+                                                                }
+
+                                                                let data = &dest_read_buffer[..bytes_read];
+                                                                match source_sender_clone.send(Bytes::copy_from_slice(&data)).await {
+                                                                    Ok(_) => {},
+                                                                    Err(e)  => {
+                                                                        println!("Error sending data to source: {}", e);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        to_destination = destination_receiver.recv() => {
+                                                            if let Some(data) = to_destination {
+                                                                forward_socket.write_all(&data).await.unwrap();
+                                                            }
+                                                        }
+
+                                                    }
 
 
-        let response: Result<_, anyhow::Error> = match watch_handle.network_type() {
-            NetworkType::Direct => {
+
+                                                }
+                                            });
 
 
-                match send_request(request, "", client_clone).await {
 
-                    Ok(response) => Ok(response),
-                    Err(e) => {
-                        println!("{}", e);
-                        let error_response = Response::builder()
-                            .status(500)
-                            .body(Full::new(Bytes::from("Internal Server Error")) .map_err(|never: Infallible| -> hyper::Error { match never {} })
-                                .boxed()
-                            )
-                            .unwrap();
-                        Ok(error_response)
+                                            source_sender.send(Bytes::from_static(b"CONNECT")).await.unwrap();
+                                            connection_state =
+                                                ConnectionState::Forwarding(url, destination_sender);
+                                        } else {
+                                            //Unexpected data received. //TODO close socket.
+                                            println!(
+                                                "Unexpected data received: {}",
+                                                String::from_utf8_lossy(&data)
+                                            );
+                                        }
+                                    }
+                                    ConnectionState::Forwarding(target, dest_sender) => {
+                                        match dest_sender.send(Bytes::copy_from_slice(data)).await {
+                                            Ok(_) => {}
+                                            Err(e) => {
+                                                println!("Error sending data to destination: {}", e);
+                                            }
+                                        }
+                                    }
+                                }
 
+
+                            }
+
+                        }
                     }
                 }
-            }
-            NetworkType::Proxied => {
-                //TODO kerberos
-
-                //let proxy_stream = TcpStream::connect(upstream_proxy).await.unwrap();
-                Ok(todo!())
-            }
-        };
-
-        response
-    }
-
-
-    }
-
-    );
-
-
-
-
-    if let Err(err) = Builder::new(TokioExecutor::new())
-        .serve_connection_with_upgrades(socket, service)
-        .await
-    {
-        eprintln!("Error serving connection: {:?}", err);
-    }
-
-
-
-
-
-
-
-
+            });
+        }
+    });
 }
 
-async fn send_request(request: Request<Incoming>, dest: &str, client_clone: Client<HttpsConnector<HttpConnector>, Incoming>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, anyhow::Error> {
-    let (mut parts, body) = request.into_parts();
-
-    // Remove hop-by-hop headers from the request. These are meant for the current
-    // connection only and should not be forwarded.
-    parts.headers.remove(hyper::header::CONNECTION);
-    parts.headers.remove(hyper::header::PROXY_AUTHENTICATE);
-    parts.headers.remove(hyper::header::PROXY_AUTHORIZATION);
-    parts.headers.remove(hyper::header::TE);
-    parts.headers.remove(hyper::header::TRANSFER_ENCODING);
-    parts.headers.remove(hyper::header::UPGRADE);
-    // This is a non-standard but common header.
-    parts.headers.remove("proxy-connection");
-
-    // Re-assemble the request with the sanitized headers.
-    let request = Request::from_parts(parts, body);
-
-    let response = client_clone.request(request).await.expect("TODO: panic message");
-
-
-    let (parts, body) = response.into_parts();
-
-
-    // Return response with collected body
-    Ok(Response::from_parts(parts, body.boxed()))
+enum ConnectionState {
+    Initializing,
+    Forwarding(String, Sender<Bytes>),
 }
-
-
-
-
-
