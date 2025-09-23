@@ -138,7 +138,7 @@ fn main() {
                                             //                            println!("{}", from_utf8(&data).unwrap());
 
                                         //HTTP 1.1 CONNECT HEADER
-                                        if data.starts_with(b"CONNECT ") || data.starts_with(b"GET "){
+                                        if data.starts_with(b"CONNECT ") {
                                             let connect_body = String::from_utf8_lossy(&data[0..bytes_read]);
 
                                             let mut split = connect_body.split_whitespace();
