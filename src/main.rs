@@ -1,21 +1,26 @@
 mod network;
 
+use bytes::{Bytes, BytesMut};
 use netaddr2::{Contains, Netv4Addr};
-use std::{env, io};
 use std::error::Error;
 use std::io::ErrorKind;
 use std::net::ToSocketAddrs;
 use std::str::{from_utf8, FromStr};
 use std::thread::sleep;
 use std::time::Duration;
-use bytes::{Bytes, BytesMut};
+use std::{env, io, mem};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
+use crate::network::NetworkType;
 use http_body_util::BodyExt;
+use retry_strategy::{retry, ToDuration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
 use tokio::sync::mpsc::Sender;
-use crate::network::NetworkType;
+use backon::{ExponentialBackoff, ExponentialBuilder};
+use backon::Retryable;
+
+const SUCCESS_CONNECT_RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -69,28 +74,17 @@ fn main() {
 
         loop {
             let (mut source_socket, _) = listener.accept().await.unwrap();
-
             let mut dest_socket: Option<TcpStream> = Option::None;
-
-
-            let (source_sender, mut source_receiver) = tokio::sync::mpsc::channel::<Bytes>(200);
 
             let network_handle_clone = network_handle.clone();
             let upstream_proxy_clone = upstream_proxy.clone().unwrap();
 
             let mut network_updates_receiver = network_handle_clone.subscribe();
-
-            //drop initial value
             network_updates_receiver.mark_unchanged();
-            // state: dest unknown
-            //HTTP CONNECT url
-            //
-            // dest
-            //
-            let _ = tokio::spawn(async move {
-                let mut connection_state = ConnectionState::Initializing;
 
-                //println!("New connection");
+            let mut connection_state = ConnectionState::Initializing;
+
+            let _ = tokio::spawn(async move {
 
                 loop {
 
@@ -98,24 +92,52 @@ fn main() {
                     let mut dest_read_buffer = [0; 2048];
 
 
-
-
                     tokio::select! {
-
                        network_update = network_updates_receiver.changed() => {
                             if let Ok(_) = network_update {
-                               let test = network_updates_receiver.borrow_and_update().clone();
-                                println!("Network has changed, closing connection.");
-                                match test {
-                                    NetworkType::Direct => {
-                                        break;
-                                    },
-                                    NetworkType::Proxied => {
-                                        break;
+                               let network_type = network_updates_receiver.borrow_and_update().clone();
+                                println!("Network has changed, switching connection.");
+
+                                if let ConnectionState::Forwarding(host)  = connection_state.clone() {
+                                    match network_type {
+                                        NetworkType::Direct => {
+                                            drop(dest_socket.expect("to be here"));
+                                            match connect_with_retry(&host).await {
+                                                Ok(socket) => {
+                                                    println!("Switched to Direct");
+                                                    dest_socket = Some(socket);
+                                                }
+                                                Err(e) => {
+                                                    println!("Failed to connect to {}: {}", host, e);
+                                                    break;
+                                                }
+                                            }
+                                        },
+                                        NetworkType::Proxied => {
+                                            drop(dest_socket.expect("to be here"));
+                                            match connect_with_retry(&upstream_proxy_clone).await {
+                                                Ok(socket) => {
+                                                    println!("Switched to Proxied");
+                                                    dest_socket = Some(socket);
+                                                }
+                                                Err(e) => {
+                                                    println!("Failed to connect to {}: {}", host, e);
+                                                    break;
+                                                }
+                                            }
+                                            dest_socket.as_mut().unwrap().write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", &host, &host).as_bytes()).await.unwrap();
+                                            let mut proxy_connect_dest_read = [0; 2048];
+                                            let bytes_read = dest_socket.as_mut().unwrap().read(&mut proxy_connect_dest_read).await.unwrap();
+                                            let data = &proxy_connect_dest_read[..bytes_read];
+                                            if !data.starts_with(b"HTTP/1.1 200") {
+                                                println!("Proxy Handshake Failed.");
+                                                break;
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            }
+                       }
                        from_destination = async { dest_socket.as_mut().unwrap().read(&mut dest_read_buffer).await }, if dest_socket.is_some() => {
                             if let Ok(bytes_read) = from_destination {
                                 if bytes_read == 0 {
@@ -136,44 +158,51 @@ fn main() {
                                 let data = &source_read_buffer[..bytes_read];
                                 match &mut connection_state {
                                     ConnectionState::Initializing => {
-                                            //                            println!("{}", from_utf8(&data).unwrap());
-
-                                        match parse_host(&data)  {
-                                            Ok(RequestType::Connect(host)) => {
-
+                                        match parse_host(&data) {
+                                            Ok((req_type, host)) => {
                                                 match network_handle_clone.network_type() {
                                                     NetworkType::Direct => {
                                                         println!("Connecting to {}", &host);
-                                                        dest_socket = Some(TcpStream::connect(&host).await.unwrap());
-                                                        source_socket.write_all(b"CONNECT").await.unwrap();
+                                                        let connect_result = connect_with_retry(&host).await;
+                                                        match connect_result {
+                                                            Ok(socket) => {
+                                                                dest_socket = Some(socket);
+                                                                connection_state = ConnectionState::Forwarding(host);
+                                                                     match req_type {
+                                                                         RequestType::Connect => {
+                                                                             let _ = source_socket.write_all(SUCCESS_CONNECT_RESPONSE).await;
+                                                                         },
+                                                                         RequestType::Other => {
+                                                                             let _ = dest_socket.as_mut().expect("to be here").write_all(data).await;
+                                                                         }
+                                                                     }
+                                                            },
+                                                            Err(e) => {
+                                                                println!("Failed to connect to {}: {}", upstream_proxy_clone, e);
+                                                                break;
+                                                            }
+                                                        }
+
                                                     },
                                                     NetworkType::Proxied => {
                                                         println!("Connecting to {} -> {}", &upstream_proxy_clone, &host);
-                                                        let mut socket = TcpStream::connect(&upstream_proxy_clone).await.unwrap();
-                                                        socket.write_all(data).await.unwrap();
-                                                        dest_socket = Some(socket);
-                                                    }
-                                                }
+                                                        let connect_result = connect_with_retry(&upstream_proxy_clone).await;
+                                                        match connect_result {
+                                                            Ok(socket) => {
+                                                                dest_socket = Some(socket);
+                                                                connection_state = ConnectionState::Forwarding(host);
+                                                                let _ = dest_socket.as_mut().expect("to be here").write_all(data).await;
+                                                            }
+                                                            Err(e) => {
+                                                                println!("Failed to connect to {}: {}", upstream_proxy_clone, e);
+                                                                break;
+                                                            }
+                                                        }
 
-                                                connection_state = ConnectionState::Forwarding(host);
-                                            },
-                                            Ok(RequestType::Other(host)) => {
-
-                                              match network_handle_clone.network_type() {
-                                                    NetworkType::Direct => {
-                                                        println!("Connecting to {}", &host);
-                                                        let mut socket = TcpStream::connect(&host).await.unwrap();
-                                                        socket.write_all(data).await.unwrap();
-                                                        dest_socket = Some(socket);                                                    },
-                                                    NetworkType::Proxied => {
-                                                        println!("Connecting to {} -> {}", &upstream_proxy_clone, &host);
-                                                        let mut socket = TcpStream::connect(&upstream_proxy_clone).await.unwrap();
-                                                        socket.write_all(data).await.unwrap();
-                                                        dest_socket = Some(socket);
                                                     }
                                                 }
                                             }
-                                            _ => {
+                                            Err(e) => {
                                                 println!(
                                                 "Unexpected data received: {}",
                                                 String::from_utf8_lossy(&data)
@@ -183,7 +212,10 @@ fn main() {
                                     }
 
                                     ConnectionState::Forwarding(target) => {
-                                        dest_socket.as_mut().unwrap().write_all(&data).await.unwrap();
+                                        let result = dest_socket.as_mut().unwrap().write_all(&data).await;
+                                        if let Err(e) = result {
+                                            println!("Warn: failed to write to destination ({}): {}", &target, e);
+                                        }
                                     }
                                 }
 
@@ -198,51 +230,61 @@ fn main() {
     });
 }
 
-
-fn parse_host(data: &[u8]) -> Result<RequestType, anyhow::Error> {
-
+fn parse_host(data: &[u8]) -> Result<(RequestType, String), anyhow::Error> {
     if data.starts_with(b"CONNECT ") {
         let connect_body = String::from_utf8_lossy(&data);
         let mut split = connect_body.split_whitespace();
         let host = split.nth(1).unwrap().to_owned();
-        Ok(RequestType::Connect(host))
+        Ok((RequestType::Connect, host))
     } else {
-
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
         let res = req.parse(data)?;
 
         let path = req.path.unwrap();
 
-        let default_port = { if path.starts_with("https") {
+        let default_port = {
+            if path.starts_with("https") {
                 "443".to_owned()
             } else {
                 "80".to_owned()
             }
-
         };
 
-
-        let mut host = req.headers.iter()
-            .find_map(|header| { if header.name == "Host" { Some(String::from_utf8_lossy(header.value).into_owned()) } else {None} })
+        let mut host = req
+            .headers
+            .iter()
+            .find_map(|header| {
+                if header.name == "Host" {
+                    Some(String::from_utf8_lossy(header.value).into_owned())
+                } else {
+                    None
+                }
+            })
             .ok_or_else(|| anyhow::anyhow!("No host header found"))?;
 
         if !host.contains(":") {
             host = format!("{}:{}", host, default_port)
         };
 
-        Ok(RequestType::Other(host))
-
+        Ok((RequestType::Other, host))
     }
 }
 
-enum RequestType {
-    Connect(String),
-    Other(String)
+async fn connect_with_retry(host: &str) -> Result<TcpStream, io::Error> {
+    (|| async { TcpStream::connect(&host).await }).retry(&ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(500))
+        .with_max_delay(Duration::from_secs(10))
+        .with_max_times(5)).await
 }
 
+enum RequestType {
+    Connect,
+    Other,
+}
 
+#[derive(Clone)]
 enum ConnectionState {
     Initializing,
-    Forwarding(String),
+    Forwarding(String)
 }
