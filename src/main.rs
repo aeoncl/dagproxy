@@ -274,7 +274,7 @@ fn parse_host(data: &[u8]) -> Result<(RequestType, String), anyhow::Error> {
 async fn connect_with_retry(host: &str) -> Result<TcpStream, io::Error> {
     (|| async { TcpStream::connect(&host).await }).retry(&ExponentialBuilder::default()
         .with_min_delay(Duration::from_millis(500))
-        .with_max_delay(Duration::from_secs(10))
+        .with_max_delay(Duration::from_secs(5))
         .with_max_times(5)).await
 }
 
