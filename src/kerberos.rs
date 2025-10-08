@@ -4,7 +4,7 @@ pub mod kerberos {
     use bytes::Bytes;
     use cross_krb5::{ClientCtx, InitiateFlags};
 
-    pub fn get_negociate_token(proxy_url: &str) -> Result<String, anyhow::Error> {
+    pub fn get_negotiate_token(proxy_url: &str) -> Result<String, anyhow::Error> {
         let proxy_spn = format!("HTTP/{}", proxy_url);
 
         let (_, token) = ClientCtx::new(InitiateFlags::empty(), None, &proxy_spn, None)?;

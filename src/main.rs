@@ -13,7 +13,7 @@ use std::time::Duration;
 use std::{env, io, mem};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
-use crate::kerberos::kerberos::get_negociate_token;
+use crate::kerberos::kerberos::get_negotiate_token;
 use crate::network::NetworkType;
 use backon::Retryable;
 use backon::{ExponentialBackoff, ExponentialBuilder};
@@ -256,7 +256,7 @@ async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Result<TcpStre
 
         let result = if data.starts_with(b"HTTP/1.1 407") {
             println!("Received proxy 407, negotiating Kerberos");
-            let kerberos_token = get_negociate_token(&proxy_without_port)?;
+            let kerberos_token = get_negotiate_token(&proxy_without_port)?;
             proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Negotiate {}\r\n\r\n", &target_host, &target_host, &kerberos_token).as_bytes()).await?;
             proxy_stream.flush().await?;
 
@@ -266,7 +266,7 @@ async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Result<TcpStre
             if data.starts_with(b"HTTP/1.1 2") {
                 Ok(proxy_stream)
             } else {
-                Err(anyhow!("Proxy Negociation failed: {}", String::from_utf8_lossy(&data)  ))
+                Err(anyhow!("Proxy Negotiation failed: {}", String::from_utf8_lossy(&data)  ))
             }
         } else if data.starts_with(b"HTTP/1.1 200") {
             Ok(proxy_stream)
