@@ -260,8 +260,8 @@ async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Result<TcpStre
             proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Negotiate {}\r\n\r\n", &target_host, &target_host, &kerberos_token).as_bytes()).await?;
             proxy_stream.flush().await?;
 
-            let bytes_read = proxy_stream.read(&mut read_buffer).await?;
-            let data = &read_buffer[..bytes_read];
+            //let bytes_read = proxy_stream.read(&mut read_buffer).await?;
+            //let data = &read_buffer[..bytes_read];
 
             //if data.starts_with(b"HTTP/1.1 2") {
             Ok(proxy_stream)
