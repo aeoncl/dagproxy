@@ -263,11 +263,11 @@ async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Result<TcpStre
             let bytes_read = proxy_stream.read(&mut read_buffer).await?;
             let data = &read_buffer[..bytes_read];
 
-            if data.starts_with(b"HTTP/1.1 2") {
-                Ok(proxy_stream)
-            } else {
-                Err(anyhow!("Proxy Negotiation failed: {}", String::from_utf8_lossy(&data)  ))
-            }
+            //if data.starts_with(b"HTTP/1.1 2") {
+            Ok(proxy_stream)
+            //} else {
+            //    Err(anyhow!("Proxy Negotiation failed: {}", String::from_utf8_lossy(&data)  ))
+            //}
         } else if data.starts_with(b"HTTP/1.1 200") {
             Ok(proxy_stream)
         } else {
