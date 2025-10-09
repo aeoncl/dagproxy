@@ -2,26 +2,18 @@ mod network;
 mod kerberos;
 
 use anyhow::anyhow;
-use bytes::{Bytes, BytesMut};
-use netaddr2::{Contains, Netv4Addr};
-use std::error::Error;
-use std::io::ErrorKind;
-use std::net::ToSocketAddrs;
-use std::str::{from_utf8, FromStr};
-use std::thread::sleep;
+use netaddr2::Netv4Addr;
+use std::str::FromStr;
 use std::time::Duration;
-use std::{env, io, mem};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use std::{env, io};
+use tokio::net::{TcpListener, TcpStream};
 
-use crate::kerberos::kerberos::get_negotiate_token;
+use crate::kerberos::kerberos::negotiate_with_krb5;
 use crate::network::NetworkType;
 use backon::Retryable;
-use backon::{ExponentialBackoff, ExponentialBuilder};
-use http_body_util::BodyExt;
-use retry_strategy::{retry, ToDuration};
+use backon::ExponentialBuilder;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
-use tokio::sync::mpsc::Sender;
 
 const SUCCESS_CONNECT_RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
 
@@ -61,7 +53,7 @@ fn main() {
 
     let corporate_subnets = corporate_subnets.unwrap();
 
-    let rt = runtime::Builder::new_multi_thread()
+    let rt = runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
@@ -238,12 +230,7 @@ fn main() {
 
 
 async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Result<TcpStream, anyhow::Error> {
-
-    let proxy_without_port = {
-        let parts = proxy_host.split(":").collect::<Vec<&str>>();
-        parts.first().map(|e| e.to_owned()).ok_or(anyhow::anyhow!("Could not split proxy on :"))
-    }?;
-
+    
     let mut proxy_stream = connect_with_retry(proxy_host).await?;
         proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", &target_host, &target_host).as_bytes()).await?;
         proxy_stream.flush().await?;
@@ -256,22 +243,23 @@ async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Result<TcpStre
 
         let result = if data.starts_with(b"HTTP/1.1 407") {
             println!("Received proxy 407, negotiating Kerberos");
-            let kerberos_token = get_negotiate_token(&proxy_without_port)?;
-            proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Negotiate {}\r\n\r\n", &target_host, &target_host, &kerberos_token).as_bytes()).await?;
+            drop(proxy_stream);
+            negotiate_with_krb5(&proxy_host).await?;
+
+            let mut proxy_stream = connect_with_retry(proxy_host).await?;
+            proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", &target_host, &target_host).as_bytes()).await?;
             proxy_stream.flush().await?;
-
-            //let bytes_read = proxy_stream.read(&mut read_buffer).await?;
-            //let data = &read_buffer[..bytes_read];
-
-            //if data.starts_with(b"HTTP/1.1 2") {
+            
             Ok(proxy_stream)
-            //} else {
-            //    Err(anyhow!("Proxy Negotiation failed: {}", String::from_utf8_lossy(&data)  ))
-            //}
-        } else if data.starts_with(b"HTTP/1.1 200") {
+
+        } else if data.starts_with(b"HTTP/1.1 2") {
             Ok(proxy_stream)
         } else {
-            Err(anyhow!("Received Error from proxy"))
+            if (bytes_read != 0) {
+                Err(anyhow!("Received Error from proxy: {}", String::from_utf8_lossy(&data) ))
+            } else {
+                Err(anyhow!("Proxy closed connection for target_host: {}", &target_host))
+            }
         };
 
         result
