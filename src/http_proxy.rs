@@ -33,11 +33,11 @@ impl HttpProxy {
 
                     let upstream_proxy_host = self.upstream_proxy_host.clone();
                     let upstream_proxy_port = self.upstream_proxy_port.clone();
-
-                    let  network_watcher = self.network_watcher.clone();
+                    let network_watcher = self.network_watcher.clone();
+                    let no_proxy = self.no_proxy.clone();
 
                     let _ = tokio::spawn(async move {
-                        let mut proxy_tunnel = ProxyTunnel::new(source_socket, upstream_proxy_host, upstream_proxy_port, network_watcher);
+                        let mut proxy_tunnel = ProxyTunnel::new(source_socket, upstream_proxy_host, upstream_proxy_port, no_proxy, network_watcher);
                         proxy_tunnel.start().await;
                     });
                 }
@@ -57,17 +57,19 @@ struct ProxyTunnel {
     source_socket: TcpStream,
     upstream_proxy_host: String,
     upstream_proxy_port: u32,
+    no_proxy: Vec<String>,
     network_watcher: NetworkWatchHandle,
     dest_socket: Option<TcpStream>,
     state: ConnectionState,
 }
 
 impl ProxyTunnel {
-    pub fn new(source_socket: TcpStream, upstream_proxy_host: String, upstream_proxy_port: u32, network_watcher: NetworkWatchHandle) -> Self {
+    pub fn new(source_socket: TcpStream, upstream_proxy_host: String, upstream_proxy_port: u32, no_proxy: Vec<String>, network_watcher: NetworkWatchHandle) -> Self {
         Self {
             source_socket,
             upstream_proxy_host,
             upstream_proxy_port,
+            no_proxy,
             network_watcher,
             dest_socket: None,
             state: ConnectionState::Initializing
@@ -169,6 +171,15 @@ impl ProxyTunnel {
     }
 
     async fn setup_dest_socket(&mut self, updated_type: NetworkType, target_host: &str) -> Result<(), anyhow::Error> {
+        let no_proxy = self.no_proxy.iter().any(
+            |no_proxy_host| target_host.contains(no_proxy_host)
+        );
+
+        if no_proxy && self.dest_socket.is_none() {
+            println!("Host is no_proxy, setup direct connection to: {}", &target_host);
+            self.dest_socket =  Some(connect_with_retry(&target_host).await?);
+        }
+
         match updated_type {
             NetworkType::Direct => {
                 println!("Setup direct connection to: {}", &target_host);
