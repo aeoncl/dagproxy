@@ -12,7 +12,16 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
 fn main() {
 
-    let args = DagProxyArgs::from_env();
+
+
+    let env_args: Vec<String> = env::args().collect();
+
+    if env_args.get(1) == Some(&"--help".to_owned()) {
+        println!("Usage: dagproxy --upstream-proxy <host>:<port> --corporate-subnets <subnet1>,<subnet2> --listen-port <port> --listen-port-https <port> [--transparent]");
+        return;
+    }
+
+    let args = DagProxyArgs::from_env_args(env_args);
 
     let rt = runtime::Builder::new_current_thread()
         .enable_all()
@@ -47,12 +56,10 @@ struct DagProxyArgs {
     transparent_proxy: bool,
 }
 impl DagProxyArgs {
-    fn from_env() -> Self {
-        let args: Vec<String> = env::args().collect();
-
+    fn from_env_args(env_args: Vec<String>) -> Self {
         let (upstream_proxy_host, upstream_proxy_port) = {
 
-            let upstream_proxy = args.windows(2).find_map(|window| {
+            let upstream_proxy = env_args.windows(2).find_map(|window| {
                 if window[0] == "--upstream-proxy" {
                     Some(window[1].to_owned())
                 } else {
@@ -64,7 +71,7 @@ impl DagProxyArgs {
             (split.next().expect("upstream proxy to have host").to_owned(), u32::from_str(split.next().expect("upstream proxy to have port")).expect("upstream proxy port to be a number"))
         };
 
-        let no_proxy_hosts = args.windows(2).find_map(|window| {
+        let no_proxy_hosts = env_args.windows(2).find_map(|window| {
             if window[0] == "--no-proxy" {
                 Some(window[1].split(",").map(|host| host.to_owned()).collect::<Vec<_>>())
             } else {
@@ -72,7 +79,7 @@ impl DagProxyArgs {
             }
         }).unwrap_or_default();
 
-        let corporate_subnets = args.windows(2).find_map(|window| {
+        let corporate_subnets = env_args.windows(2).find_map(|window| {
             if window[0] == "--corporate-subnets" {
                 let subnets = window[1]
                     .split(",")
@@ -84,7 +91,7 @@ impl DagProxyArgs {
             }
         }).expect("Missing required argument: --corporate-subnets");
 
-        let listen_port = args
+        let listen_port = env_args
             .windows(2)
             .find_map(|window| {
                 if window[0] == "--listen-port" {
@@ -95,7 +102,7 @@ impl DagProxyArgs {
             })
             .unwrap_or(3232);
 
-        let listen_port_https = args
+        let listen_port_https = env_args
             .windows(2)
             .find_map(|window| {
                 if window[0] == "--listen-port-https" {
@@ -106,7 +113,7 @@ impl DagProxyArgs {
             })
             .unwrap_or(listen_port+1);
 
-        let transparent_proxy = args.iter().find_map(|window| {
+        let transparent_proxy = env_args.iter().find_map(|window| {
             if window == "--transparent" {
                 Some(true)
             } else {
