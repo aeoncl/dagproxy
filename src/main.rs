@@ -11,13 +11,10 @@ use http_proxy::HttpProxy;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
 fn main() {
-
-
-
     let env_args: Vec<String> = env::args().collect();
 
     if env_args.get(1) == Some(&"--help".to_owned()) {
-        println!("Usage: dagproxy --upstream-proxy <host>:<port> --corporate-subnets <subnet1>,<subnet2> --listen-port <port> --listen-port-https <port> [--transparent]");
+        print_help();
         return;
     }
 
@@ -46,6 +43,37 @@ fn main() {
 
 }
 
+
+fn print_help() {
+
+    let min_length = 45;
+
+    println!("Usage:");
+    println!("\tdagproxy [options]");
+    println!();
+    println!("Options:");
+    print_padded("\t--corporate-subnets <subnet1>,<subnet2>" ,"Forwards trafic to the upstream proxy when on one of those subnets", min_length);
+    print_padded("\t--upstream-proxy <host>:<port>", "The upstream proxy to forward traffic to", min_length);
+    print_padded("\t--listen-port <port>", "The port to listen on for HTTP traffic. Defaults to 3232", min_length);
+    print_padded("\t--listen-port-https <port>", "The port to listen on for HTTPS traffic. Defaults to 3233. Only used when --transparent is set.", min_length);
+    print_padded("\t--no-proxy <host1>,<host2>", "Hosts to not proxy. Defaults to none.", min_length);
+    print_padded("\t--transparent", "Use transparent proxying. Defaults to false. This will require you to install a certificate on your machine.", min_length);
+    print_padded("\t--help", "Print this help message", min_length);
+    println!();
+    println!("Example:");
+    println!("\tdagproxy --upstream-proxy 192.168.1.1:3128 --corporate-subnets 192.168.1.0/24 --listen-port 3232");
+}
+
+fn print_padded(to_pad: &str, other_half: &str, min_length: i32) {
+    let spaces_to_add: i32 = min_length - to_pad.len() as i32;
+    print!("{}", to_pad);
+    if(spaces_to_add > 0) {
+        print!("{}", ".".repeat(spaces_to_add as usize));
+    }
+    print!(" {}", other_half);
+    println!();
+}
+
 struct DagProxyArgs {
     upstream_proxy_host: String,
     upstream_proxy_port: u32,
@@ -63,7 +91,7 @@ impl DagProxyArgs {
                 println!("{}", s);
             }
         }));
-        
+
         let (upstream_proxy_host, upstream_proxy_port) = {
 
             let upstream_proxy = env_args.windows(2).find_map(|window| {
@@ -72,7 +100,7 @@ impl DagProxyArgs {
                 } else {
                     None
                 }
-            }).expect("Missing required argument: --upstream-proxy");
+            }).expect("Missing required argument: --upstream-proxy <host>:<port>");
 
             let mut split = upstream_proxy.split(":");
             (split.next().expect("upstream proxy to have host").to_owned(), u32::from_str(split.next().expect("upstream proxy to have port")).expect("upstream proxy port to be a number"))
@@ -96,7 +124,7 @@ impl DagProxyArgs {
             } else {
                 None
             }
-        }).expect("Missing required argument: --corporate-subnets");
+        }).expect("Missing required argument: --corporate-subnets <0.0.0.0/32>,<1.1.1.1/24>");
 
         let listen_port = env_args
             .windows(2)
