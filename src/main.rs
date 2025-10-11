@@ -6,7 +6,7 @@ pub mod http_proxy;
 use netaddr2::Netv4Addr;
 use std::str::FromStr;
 use std::env;
-
+use std::panic::{set_hook, take_hook};
 use http_proxy::HttpProxy;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
@@ -57,6 +57,13 @@ struct DagProxyArgs {
 }
 impl DagProxyArgs {
     fn from_env_args(env_args: Vec<String>) -> Self {
+
+        set_hook(Box::new(|info| {
+            if let Some(s) = info.payload().downcast_ref::<String>() {
+                println!("{}", s);
+            }
+        }));
+        
         let (upstream_proxy_host, upstream_proxy_port) = {
 
             let upstream_proxy = env_args.windows(2).find_map(|window| {
@@ -121,6 +128,7 @@ impl DagProxyArgs {
             }
         }).unwrap_or(false);
 
+        let _ = take_hook();
 
         Self {
             upstream_proxy_host,
