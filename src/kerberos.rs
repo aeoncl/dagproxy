@@ -4,7 +4,7 @@ pub mod kerberos {
     use bytes::Bytes;
     use cross_krb5::{ClientCtx, InitiateFlags};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use crate::connect_with_retry;
+    use crate::http::connect_with_retry;
 
     pub async fn negotiate_with_krb5(proxy_host: &str) -> Result<(), anyhow::Error> {
 
@@ -36,28 +36,4 @@ pub mod kerberos {
             Err(anyhow::anyhow!("Error: Unexpected proxy negotiate response: {}", String::from_utf8_lossy(data)))
         }
     }
-
-/*    pub fn negotiate_with_curl(proxy_host: &str) -> Result<(), anyhow::Error> {
-        let mut easy = Easy::new();
-
-        // Set the URL to fetch
-        easy.url("https://google.com")?;
-
-        // Set the proxy server
-        easy.proxy(format!("http://{}", proxy_host).as_str())?;
-
-        // Create a new Auth object and enable Negotiate
-        let mut auth = curl::easy::Auth::new();
-        auth.gssnegotiate(true);
-
-        // Set the proxy authentication methods
-        easy.proxy_auth(&auth)?;
-
-        // Perform the request
-        easy.perform()?;
-        println!("Response code for proxy negotiate: {}", easy.response_code()?);
-
-        Ok(())
-    }*/
-
 }
