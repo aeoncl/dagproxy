@@ -1,57 +1,18 @@
-mod network;
+mod network_watcher;
 mod kerberos;
+mod http;
+pub mod http_proxy;
 
-use anyhow::anyhow;
 use netaddr2::Netv4Addr;
 use std::str::FromStr;
-use std::time::Duration;
-use std::{env, io};
-use tokio::net::{TcpListener, TcpStream};
+use std::env;
 
-use crate::kerberos::kerberos::negotiate_with_krb5;
-use crate::network::NetworkType;
-use backon::Retryable;
-use backon::ExponentialBuilder;
+use http_proxy::HttpProxy;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
-
-const SUCCESS_CONNECT_RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
-
 fn main() {
-    let args: Vec<String> = env::args().collect();
 
-    let upstream_proxy = args.windows(2).find_map(|window| {
-        if window[0] == "--upstream-proxy" {
-            Some(window[1].to_owned())
-        } else {
-            None
-        }
-    });
-
-    let port = args
-        .windows(2)
-        .find_map(|window| {
-            if window[0] == "--port" {
-                Some(window[1].to_owned())
-            } else {
-                None
-            }
-        })
-        .unwrap_or("3232".into());
-
-    let corporate_subnets = args.windows(2).find_map(|window| {
-        if window[0] == "--corporate-subnets" {
-            let subnets = window[1]
-                .split(",")
-                .map(|subnet| Netv4Addr::from_str(subnet).unwrap())
-                .collect::<Vec<_>>();
-            Some(subnets)
-        } else {
-            None
-        }
-    });
-
-    let corporate_subnets = corporate_subnets.unwrap();
+    let args = DagProxyArgs::from_env();
 
     let rt = runtime::Builder::new_current_thread()
         .enable_all()
@@ -59,267 +20,114 @@ fn main() {
         .unwrap();
 
     rt.block_on(async move {
-        println!("Starting DagProxy on port: {}", &port);
+        println!("Starting DagProxy");
+        let network_handle = network_watcher::watch_networks(args.corporate_subnets);
+        let mut http_proxy = HttpProxy::new(
+            args.upstream_proxy_host,
+            args.upstream_proxy_port,
+            args.no_proxy,
+            network_handle.clone()
+        );
 
-        let network_handle = network::watch_networks(corporate_subnets);
-
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
-            .await
-            .unwrap();
-
-        loop {
-            let (mut source_socket, _) = listener.accept().await.unwrap();
-            let mut dest_socket: Option<TcpStream> = Option::None;
-
-            let network_handle_clone = network_handle.clone();
-            let upstream_proxy_clone = upstream_proxy.clone().unwrap();
-
-            let mut network_updates_receiver = network_handle_clone.subscribe();
-            network_updates_receiver.mark_unchanged();
-
-            let mut connection_state = ConnectionState::Initializing;
-
-            let _ = tokio::spawn(async move {
-
-                loop {
-
-                    let mut source_read_buffer = [0; 2048];
-                    let mut dest_read_buffer = [0; 2048];
+        http_proxy.start("127.0.0.1".to_owned(), args.listen_port_http).await.unwrap();
 
 
-                    tokio::select! {
-                       network_update = network_updates_receiver.changed() => {
-                            if let Ok(_) = network_update {
-                               let network_type = network_updates_receiver.borrow_and_update().clone();
-                                println!("Network has changed, switching connection.");
 
-                                if let ConnectionState::Forwarding(host)  = connection_state.clone() {
-                                    match network_type {
-                                        NetworkType::Direct => {
-                                            drop(dest_socket.expect("to be here"));
-                                            match connect_with_retry(&host).await {
-                                                Ok(socket) => {
-                                                    println!("Switched to Direct");
-                                                    dest_socket = Some(socket);
-                                                }
-                                                Err(e) => {
-                                                    println!("Failed to connect to {}: {}", host, e);
-                                                    break;
-                                                }
-                                            }
-                                        },
-                                        NetworkType::Proxied => {
-                                            drop(dest_socket.expect("to be here"));
-                                            match connect_to_proxy(&upstream_proxy_clone, &host).await {
-                                                Ok(socket) => {
-                                                    println!("Switched to Proxied");
-                                                    dest_socket = Some(socket);
-                                                }
-                                                Err(e) => {
-                                                    println!("Failed to connect to {}: {}", host, e);
-                                                    break;
-                                                }
-                                            }
-
-                                        }
-                                    }
-                                }
-                            }
-                       }
-                       from_destination = async { dest_socket.as_mut().unwrap().read(&mut dest_read_buffer).await }, if dest_socket.is_some() => {
-                            if let Ok(bytes_read) = from_destination {
-                                if bytes_read == 0 {
-                                    break;
-                                }
-                                let data = &dest_read_buffer[..bytes_read];
-                                source_socket.write_all(&data).await.unwrap();
-                            }
-
-                        }
-                        from_source = source_socket.read(&mut source_read_buffer) => {
-                            if let Ok(bytes_read) = from_source {
-
-                                if bytes_read == 0 {
-                                    //Socket closed
-                                    break;
-                                }
-
-                                let data = &source_read_buffer[..bytes_read];
-
-                                match &mut connection_state {
-                                    ConnectionState::Initializing => {
-                                        match parse_host_from_request(&data) {
-                                            Ok((req_type, host)) => {
-                                                match network_handle_clone.network_type() {
-                                                    NetworkType::Direct => {
-                                                        println!("Connecting to {}", &host);
-                                                        let connect_result = connect_with_retry(&host).await;
-                                                        match connect_result {
-                                                            Ok(socket) => {
-                                                                dest_socket = Some(socket);
-                                                                connection_state = ConnectionState::Forwarding(host);
-                                                                     match req_type {
-                                                                         RequestType::Connect => {
-                                                                             let _ = source_socket.write_all(SUCCESS_CONNECT_RESPONSE).await;
-                                                                         },
-                                                                         RequestType::Other => {
-                                                                             let _ = dest_socket.as_mut().expect("to be here").write_all(data).await;
-                                                                         }
-                                                                     }
-                                                            },
-                                                            Err(e) => {
-                                                                println!("Failed to connect to {}: {}", upstream_proxy_clone, e);
-                                                                break;
-                                                            }
-                                                        }
-
-                                                    },
-                                                    NetworkType::Proxied => {
-                                                        println!("Connecting to {} -> {}", &upstream_proxy_clone, &host);
-                                                        let connect_result = connect_to_proxy(&upstream_proxy_clone, &host).await;
-                                                        match connect_result {
-                                                            Ok(socket) => {
-                                                                dest_socket = Some(socket);
-                                                                connection_state = ConnectionState::Forwarding(host.clone());
-
-                                                                match req_type {
-                                                                    RequestType::Connect => {
-                                                                        let _ = source_socket.write_all(SUCCESS_CONNECT_RESPONSE).await;
-                                                                    },
-                                                                    RequestType::Other => {
-                                                                        let _ = dest_socket.as_mut().expect("to be here").write_all(data).await;
-                                                                    }
-                                                                }
-                                                            }
-                                                            Err(e) => {
-                                                                println!("Failed to connect to {}: {}", upstream_proxy_clone, e);
-                                                                break;
-                                                            }
-                                                        }
-
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                println!(
-                                                "Unexpected data received: {}",
-                                                String::from_utf8_lossy(&data)
-                                            );
-                                            }
-                                        }
-                                    }
-
-                                    ConnectionState::Forwarding(target) => {
-                                        let result = dest_socket.as_mut().unwrap().write_all(&data).await;
-                                        if let Err(e) = result {
-                                            println!("Warn: failed to write to destination ({}): {}", &target, e);
-                                        }
-                                    }
-                                }
-
-
-                            }
-
-                        }
-                    }
-                }
-            });
-        }
     });
+
 }
 
+struct DagProxyArgs {
+    upstream_proxy_host: String,
+    upstream_proxy_port: u32,
+    no_proxy: Vec<String>,
+    corporate_subnets: Vec<Netv4Addr>,
+    listen_port_http: u32,
+    listen_port_https: u32,
+    transparent_proxy: bool,
+}
+impl DagProxyArgs {
+    fn from_env() -> Self {
+        let args: Vec<String> = env::args().collect();
 
-async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Result<TcpStream, anyhow::Error> {
-    
-    let mut proxy_stream = connect_with_retry(proxy_host).await?;
-        proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", &target_host, &target_host).as_bytes()).await?;
-        proxy_stream.flush().await?;
+        let (upstream_proxy_host, upstream_proxy_port) = {
 
-        let mut read_buffer = [0; 2048];
+            let upstream_proxy = args.windows(2).find_map(|window| {
+                if window[0] == "--upstream-proxy" {
+                    Some(window[1].to_owned())
+                } else {
+                    None
+                }
+            }).expect("Missing required argument: --upstream-proxy");
 
-        let bytes_read = proxy_stream.read(&mut read_buffer).await?;
-        let data = &read_buffer[..bytes_read];
-
-
-        let result = if data.starts_with(b"HTTP/1.1 407") {
-            println!("Received proxy 407, negotiating Kerberos");
-            drop(proxy_stream);
-            negotiate_with_krb5(&proxy_host).await?;
-
-            let mut proxy_stream = connect_with_retry(proxy_host).await?;
-            proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", &target_host, &target_host).as_bytes()).await?;
-            proxy_stream.flush().await?;
-            
-            Ok(proxy_stream)
-
-        } else if data.starts_with(b"HTTP/1.1 2") {
-            Ok(proxy_stream)
-        } else {
-            if (bytes_read != 0) {
-                Err(anyhow!("Received Error from proxy: {}", String::from_utf8_lossy(&data) ))
-            } else {
-                Err(anyhow!("Proxy closed connection for target_host: {}", &target_host))
-            }
+            let mut split = upstream_proxy.split(":");
+            (split.next().expect("upstream proxy to have host").to_owned(), u32::from_str(split.next().expect("upstream proxy to have port")).expect("upstream proxy port to be a number"))
         };
 
-        result
-    }
-
-fn parse_host_from_request(data: &[u8]) -> Result<(RequestType, String), anyhow::Error> {
-    if data.starts_with(b"CONNECT ") {
-        let connect_body = String::from_utf8_lossy(&data);
-        let mut split = connect_body.split_whitespace();
-        let host = split.nth(1).unwrap().to_owned();
-        Ok((RequestType::Connect, host))
-    } else {
-        let mut headers = [httparse::EMPTY_HEADER; 16];
-        let mut req = httparse::Request::new(&mut headers);
-        let res = req.parse(data)?;
-
-        let path = req.path.unwrap();
-
-        let default_port = {
-            if path.starts_with("https") {
-                "443".to_owned()
+        let no_proxy_hosts = args.windows(2).find_map(|window| {
+            if window[0] == "--no-proxy" {
+                Some(window[1].split(",").map(|host| host.to_owned()).collect::<Vec<_>>())
             } else {
-                "80".to_owned()
+                None
             }
-        };
+        }).unwrap_or_default();
 
-        let mut host = req
-            .headers
-            .iter()
-            .find_map(|header| {
-                if header.name == "Host" {
-                    Some(String::from_utf8_lossy(header.value).into_owned())
+        let corporate_subnets = args.windows(2).find_map(|window| {
+            if window[0] == "--corporate-subnets" {
+                let subnets = window[1]
+                    .split(",")
+                    .map(|subnet| Netv4Addr::from_str(subnet).unwrap())
+                    .collect::<Vec<_>>();
+                Some(subnets)
+            } else {
+                None
+            }
+        }).expect("Missing required argument: --corporate-subnets");
+
+        let listen_port = args
+            .windows(2)
+            .find_map(|window| {
+                if window[0] == "--listen-port" {
+                    Some(u32::from_str(&window[1]).expect("port to be a number"))
                 } else {
                     None
                 }
             })
-            .ok_or_else(|| anyhow::anyhow!("No host header found"))?;
+            .unwrap_or(3232);
 
-        if !host.contains(":") {
-            host = format!("{}:{}", host, default_port)
-        };
+        let listen_port_https = args
+            .windows(2)
+            .find_map(|window| {
+                if window[0] == "--listen-port-https" {
+                    Some(u32::from_str(&window[1]).expect("port to be a number"))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(listen_port+1);
 
-        Ok((RequestType::Other, host))
+        let transparent_proxy = args.iter().find_map(|window| {
+            if window == "--transparent" {
+                Some(true)
+            } else {
+                None
+            }
+        }).unwrap_or(false);
+
+
+        Self {
+            upstream_proxy_host,
+            upstream_proxy_port,
+            no_proxy: no_proxy_hosts,
+            corporate_subnets,
+            listen_port_http: listen_port,
+            listen_port_https: listen_port_https,
+            transparent_proxy,
+        }
+
     }
 }
 
-async fn connect_with_retry(host: &str) -> Result<TcpStream, io::Error> {
-    (|| async { TcpStream::connect(&host).await }).retry(&ExponentialBuilder::default()
-        .with_min_delay(Duration::from_millis(500))
-        .with_max_delay(Duration::from_secs(5))
-        .with_max_times(5)).await
-}
 
-enum RequestType {
-    Connect,
-    Other,
-}
 
-#[derive(Clone)]
-enum ConnectionState {
-    Initializing,
-    Forwarding(String)
-}
+
