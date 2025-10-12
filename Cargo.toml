@@ -16,4 +16,12 @@ cross-krb5 = "0.4.2"
 rcgen = {  version = "0.14.5", features = ["default", "x509-parser"] }
 chrono = "0.4.42"
 time = "0.3.44"
+rustls = { version = "0.23.32", features = ["std"], default-features = false}
+fork_stream = "0.1.0"
+tls-client_hello-parser = "0.2.1"
+libc = "1.0.0-alpha.1"
+#native-tls = "0.2.14"
 #curl = { version = "0.4.49", features = ["ssl", "spnego"] }
+
+[target.'cfg(windows)'.dependencies]
+windivert = { version = "0.6.0", features = ["vendored"] }

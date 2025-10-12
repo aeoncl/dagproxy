@@ -58,6 +58,7 @@ pub(crate) fn watch_networks(subnets: Vec<Netv4Addr>) -> NetworkWatchHandle {
         };
 
         if needs_updates {
+            println!("Network configuration changed. Notifying proxy tunnels.");
             if is_in_subnet {
                 notification_sender.send(NetworkType::Proxied).unwrap();
             } else {

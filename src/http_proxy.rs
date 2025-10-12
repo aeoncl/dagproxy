@@ -1,3 +1,7 @@
+use std::fmt::format;
+use fork_stream::StreamExt;
+use rustls::server::{Acceptor, ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
 use crate::network_watcher::{NetworkType, NetworkWatchHandle};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -22,6 +26,7 @@ impl HttpProxy {
     }
 
     pub async fn start(&mut self, host: String, port: u32) -> Result<(), anyhow::Error> {
+        println!("Starting HTTP proxy server on port: {}", &port);
 
         let listener = TcpListener::bind(format!("{}:{}", &host, &port))
             .await?;
@@ -49,9 +54,8 @@ impl HttpProxy {
         };
 
     }
-
-
 }
+
 
 struct ProxyTunnel {
     source_socket: TcpStream,

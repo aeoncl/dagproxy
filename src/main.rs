@@ -3,6 +3,8 @@ mod kerberos;
 mod http;
 mod cert;
 pub mod http_proxy;
+mod https_proxy;
+mod transparent_proxy;
 
 use netaddr2::Netv4Addr;
 use std::str::FromStr;
@@ -26,10 +28,10 @@ fn main() {
         return;
     }
 
-    let rt = runtime::Builder::new_current_thread()
+    let rt = runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap();
+        .expect("Cannot start thread pool");
 
     rt.block_on(async move {
         println!("Starting DagProxy");

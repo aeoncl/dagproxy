@@ -1,18 +1,69 @@
-use std::io;
-use std::time::Duration;
 use anyhow::anyhow;
 use backon::ExponentialBuilder;
-use tokio::net::TcpStream;
 use backon::Retryable;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use bytes::Buf;
+use std::io;
+use std::time::Duration;
+use tokio::net::TcpStream;
+
 use crate::kerberos::kerberos::negotiate_with_krb5;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub(crate) const SUCCESS_CONNECT_RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
-
+const TLS_HANDSHAKE_RECORD_TYPE: &[u8; 1] = &[0x16];
 
 pub(crate) enum RequestType {
     Connect,
     Other,
+}
+
+
+pub(crate) fn parse_host_from_tls_client_hello(data: &[u8]) -> Result<(RequestType, String), anyhow::Error> {
+    let mut parser = tls_client_hello_parser::Parser::new();
+    let owned = data.to_vec();
+    let mut reader = Box::new(owned.reader());
+    let client_hello_payload = parser.parse(&mut reader)?
+        .ok_or(anyhow!("Could not parse TLS Client Hello"))?;
+    let client_hello = client_hello_payload.client_hello()?;
+    let host_name = client_hello
+        .server_name()
+        .ok_or(anyhow!("Could not find Server Name in TLS Client Hello"))?;
+
+    Ok((RequestType::Other, format!("{}:{}", host_name, 443)))
+}
+
+fn parse_host_from_http_request(data: &[u8]) -> Result<(RequestType, String), anyhow::Error> {
+    let mut headers = [httparse::EMPTY_HEADER; 16];
+    let mut req = httparse::Request::new(&mut headers);
+    let res = req.parse(data)?;
+
+    let path = req.path.unwrap();
+
+    let default_port = {
+        if path.starts_with("https") {
+            "443".to_owned()
+        } else {
+            "80".to_owned()
+        }
+    };
+
+    let mut host = req
+        .headers
+        .iter()
+        .find_map(|header| {
+            if header.name == "Host" {
+                Some(String::from_utf8_lossy(header.value).into_owned())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow::anyhow!("No host header found"))?;
+
+    if !host.contains(":") {
+        host = format!("{}:{}", host, default_port)
+    };
+
+    Ok((RequestType::Other, host))
 }
 
 pub(crate) fn parse_host_from_request(data: &[u8]) -> Result<(RequestType, String), anyhow::Error> {
@@ -21,38 +72,10 @@ pub(crate) fn parse_host_from_request(data: &[u8]) -> Result<(RequestType, Strin
         let mut split = connect_body.split_whitespace();
         let host = split.nth(1).unwrap().to_owned();
         Ok((RequestType::Connect, host))
+    } else if data.starts_with(TLS_HANDSHAKE_RECORD_TYPE) {
+        parse_host_from_tls_client_hello(&data)
     } else {
-        let mut headers = [httparse::EMPTY_HEADER; 16];
-        let mut req = httparse::Request::new(&mut headers);
-        let res = req.parse(data)?;
-
-        let path = req.path.unwrap();
-
-        let default_port = {
-            if path.starts_with("https") {
-                "443".to_owned()
-            } else {
-                "80".to_owned()
-            }
-        };
-
-        let mut host = req
-            .headers
-            .iter()
-            .find_map(|header| {
-                if header.name == "Host" {
-                    Some(String::from_utf8_lossy(header.value).into_owned())
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| anyhow::anyhow!("No host header found"))?;
-
-        if !host.contains(":") {
-            host = format!("{}:{}", host, default_port)
-        };
-
-        Ok((RequestType::Other, host))
+        parse_host_from_http_request(&data)
     }
 }
 
@@ -99,4 +122,25 @@ pub(crate) async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Res
     };
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::Engine;
+    use base64::engine::general_purpose;
+    use crate::http::{parse_host_from_request, RequestType};
+
+    const sample_hello: &[u8; 692] = b"FgMBAgABAAH8AwN3t6WJKcsKcWo+roqQX7Nuc8SYCUAKTIkINuDoJm4ooiDRiC2236q0JY/NewWV9KcViEzk7S03gwwUSioSOKbOcAAkEwETAxMCwCvAL8ypzKjALMAwwArACcATwBQAMwA5AC8ANQAKAQABjwAAAA4ADAAACWxvY2FsaG9zdAAXAAD/AQABAAAKAA4ADAAdABcAGAAZAQABAQALAAIBAAAjAAAAEAAOAAwCaDIIaHR0cC8xLjEABQAFAQAAAAAAMwBrAGkAHQAgcqzbr+1AYblh6qcR+qvjokWhIpbChkaqpXuDY9uHhVoAFwBBBAq/uAsPt0n3lc9MGArs6RqLoQE+1eWkstNR0zPjxlQcqGSD+1mKyvSCGEwU0DCZAEFEvhnj5YxSyqcAFODwnp4AKwAJCAMEAwMDAgMBAA0AGAAWBAMFAwYDCAQIBQgGBAEFAQYBAgMCAQAtAAIBAQAcAAJAAQAVAJUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+
+    #[test]
+    pub fn test_tls_client_hello_parser() {
+
+        let client_hello = general_purpose::STANDARD.decode(&sample_hello).unwrap();
+
+        let (req_type, hostname) = parse_host_from_request(&client_hello).unwrap();
+
+        assert!(matches!(req_type, RequestType::Other));
+        assert_eq!(hostname, "localhost:443");
+    }
+
 }
