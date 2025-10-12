@@ -1,6 +1,7 @@
 mod network_watcher;
 mod kerberos;
 mod http;
+mod cert;
 pub mod http_proxy;
 
 use netaddr2::Netv4Addr;
