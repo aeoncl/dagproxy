@@ -21,6 +21,11 @@ fn main() {
 
     let args = DagProxyArgs::from_env_args(env_args);
 
+    if args.transparent_proxy {
+        println!("Transparent mode coming soon ;)");
+        return;
+    }
+
     let rt = runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -149,13 +154,9 @@ impl DagProxyArgs {
             })
             .unwrap_or(listen_port+1);
 
-        let transparent_proxy = env_args.iter().find_map(|window| {
-            if window == "--transparent" {
-                Some(true)
-            } else {
-                None
-            }
-        }).unwrap_or(false);
+        let transparent_proxy = env_args.iter().any(|window| {
+            window.as_str() == "--transparent"
+        });
 
         let _ = take_hook();
 
@@ -165,7 +166,7 @@ impl DagProxyArgs {
             no_proxy: no_proxy_hosts,
             corporate_subnets,
             listen_port_http: listen_port,
-            listen_port_https: listen_port_https,
+            listen_port_https,
             transparent_proxy,
         }
 
