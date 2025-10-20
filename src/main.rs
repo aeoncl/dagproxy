@@ -12,6 +12,9 @@ use http_proxy::HttpProxy;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
 fn main() {
+    print_header();
+
+
     let env_args: Vec<String> = env::args().collect();
 
     if env_args.get(1) == Some(&"--help".to_owned()) {
@@ -32,7 +35,6 @@ fn main() {
         .unwrap();
 
     rt.block_on(async move {
-        println!("Starting DagProxy");
         let network_handle = network_watcher::watch_networks(args.corporate_subnets);
         let mut http_proxy = HttpProxy::new(
             args.upstream_proxy_host,
@@ -47,6 +49,21 @@ fn main() {
 
     });
 
+}
+
+fn print_header() {
+    const HEADER: &str = r#"
+  (
+  )\ )   ) (  (        (          ) (
+ (()/(( /( )\))( `  )  )(   (  ( /( )\ )
+  ((_))(_)|(_))\ /(/( (()\  )\ )\()|()/(
+  _| ((_)_ (()(_|(_)_\ ((_)((_|(_)\ )(_))
+/ _` / _` / _` || '_ \) '_/ _ \ \ /| || |
+\__,_\__,_\__, || .__/|_| \___/_\_\ \_, |
+          |___/ |_|                 |__/
+    "#;
+    println!("{}", HEADER);
+    
 }
 
 
