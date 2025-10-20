@@ -30,7 +30,6 @@ pub mod kerberos {
         if data.starts_with(b"HTTP/1.1 4") || data.starts_with(b"HTTP/1.1 5") {
             Err(anyhow::anyhow!("Proxy negotiate failed: {}", String::from_utf8_lossy(data)))
         } else if data.starts_with(b"HTTP/1.1") {
-            println!("Proxy negotiate successfull.");
             Ok(())
         } else {
             Err(anyhow::anyhow!("Error: Unexpected proxy negotiate response: {}", String::from_utf8_lossy(data)))
