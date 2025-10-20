@@ -26,6 +26,12 @@ impl HttpProxy {
         let listener = TcpListener::bind(format!("{}:{}", &host, &port))
             .await?;
 
+        println!("ℹ️ HTTP Proxy listening on {}:{}", &host, &port);
+        println!("ℹ️ Upstream Proxy: {}", format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port));
+        if !self.no_proxy.is_empty() {
+            println!("ℹ️ No Proxy Hosts: {}", &self.no_proxy.join(", "));
+        }
+
         loop {
 
             match listener.accept().await {
@@ -175,20 +181,24 @@ impl ProxyTunnel {
             |no_proxy_host| target_host.contains(no_proxy_host)
         );
 
-        if no_proxy && self.dest_socket.is_none() {
-            println!("Host is no_proxy, setup direct connection to: {}", &target_host);
-            self.dest_socket =  Some(connect_with_retry(&target_host).await?);
+        if no_proxy {
+            if self.dest_socket.is_none() {
+                println!("💻 -> {} [NO_PROXY]", &target_host);
+                self.dest_socket =  Some(connect_with_retry(&target_host).await?);
+            }
+            return Ok(());
         }
 
         match updated_type {
             NetworkType::Direct => {
-                println!("Setup direct connection to: {}", &target_host);
+                println!("💻 -> {}", &target_host);
                 self.dest_socket =  Some(connect_with_retry(&target_host).await?);
                 Ok(())
             },
             NetworkType::Proxied => {
-                println!("Setup proxied connection to: {}", &target_host);
-                self.dest_socket = Some(connect_to_proxy(&format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port), &target_host).await?);
+                let proxy_uri = &format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port);
+                println!("💻 -> {} -> {}", &proxy_uri ,&target_host);
+                self.dest_socket = Some(connect_to_proxy(proxy_uri, &target_host).await?);
                 Ok(())
             }
         }

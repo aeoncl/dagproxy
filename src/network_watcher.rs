@@ -59,8 +59,10 @@ pub(crate) fn watch_networks(subnets: Vec<Netv4Addr>) -> NetworkWatchHandle {
 
         if needs_updates {
             if is_in_subnet {
+                println!("📡 Network configuration: Proxied");
                 notification_sender.send(NetworkType::Proxied).unwrap();
             } else {
+                println!("📡 Network configuration: Direct");
                 notification_sender.send(NetworkType::Direct).unwrap();
             }
         }
