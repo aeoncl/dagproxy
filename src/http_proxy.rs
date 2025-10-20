@@ -26,10 +26,10 @@ impl HttpProxy {
         let listener = TcpListener::bind(format!("{}:{}", &host, &port))
             .await?;
 
-        println!("ℹ️ HTTP Proxy listening on {}:{}", &host, &port);
-        println!("ℹ️ Upstream Proxy: {}", format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port));
+        println!("👂 HTTP Proxy listening on {}:{}", &host, &port);
+        println!("⚙️  Upstream Proxy: {}", format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port));
         if !self.no_proxy.is_empty() {
-            println!("ℹ️ No Proxy Hosts: {}", &self.no_proxy.join(", "));
+            println!("⚙️  No Proxy Hosts: {}", &self.no_proxy.join(", "));
         }
 
         loop {
