@@ -101,9 +101,11 @@ pub(crate) async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Res
 
 
     let result = if data.starts_with(b"HTTP/1.1 407") {
-        println!("Received proxy 407, negotiating Kerberos");
+        println!("🤝 Received proxy 407, negotiating Kerberos");
         drop(proxy_stream);
         negotiate_with_krb5(&proxy_host).await?;
+        
+        println!("🤝 Proxy negotiate successfull");
 
         let mut proxy_stream = connect_with_retry(proxy_host).await?;
         proxy_stream.write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", &target_host, &target_host).as_bytes()).await?;
