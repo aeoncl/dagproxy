@@ -8,7 +8,8 @@ It's main purpose is to deal with an annoying corporate proxy with expiring kerb
 - [x] Toggle between direct and proxied network
 - [x] Validated on Linux
 - [ ] Validated on Windows
-- [ ] Transparent proxying using SSL inspection & port redirection
+- [ ] Transparent proxy using ip tables on Linux
+- [ ] Transparent proxy using WinDivert on Windows
 
 ## Usage
 
