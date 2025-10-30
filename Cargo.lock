@@ -266,6 +266,7 @@ dependencies = [
  "chrono",
  "cross-krb5",
  "httparse",
+ "join-string",
  "netaddr2",
  "netwatcher",
  "rcgen",
@@ -458,6 +459,12 @@ name = "jni-sys"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
+
+[[package]]
+name = "join-string"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c256ea1b86607a462e2b82a3d3f429897f1695dbbe2a3805dcdd029f734fc12"
 
 [[package]]
 name = "js-sys"

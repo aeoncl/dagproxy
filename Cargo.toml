@@ -16,4 +16,5 @@ cross-krb5 = "0.4.2"
 rcgen = {  version = "0.14.5", features = ["default", "x509-parser"] }
 chrono = "0.4.42"
 time = "0.3.44"
+join-string = "0.3.0"
 #curl = { version = "0.4.49", features = ["ssl", "spnego"] }
