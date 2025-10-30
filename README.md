@@ -35,10 +35,17 @@ dagproxy --corporate-subnets 0.0.0.0/16,10.10.0.0/16 --upstream-proxy 'annoyingp
 ## Build on Ubuntu
 
 ```
+# Linux exe
 sudo apt-get install -y libkrb5-dev
 sudo apt-get install -y clang
 
 cargo build --release
+
+# Windows exe
+sudo apt install mingw-w64
+rustup target add x86_64-pc-windows-gnu
+
+cargo build --release --target x86_64-pc-windows-gnu
 ```
 
 ## Build on Windows

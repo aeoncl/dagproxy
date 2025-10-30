@@ -1,18 +1,21 @@
+use join_string::Join;
+use netaddr2::Netv4Addr;
 use crate::network_watcher::{NetworkType, NetworkWatchHandle};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use crate::http::{connect_to_proxy, connect_with_retry, parse_host_from_request, RequestType, SUCCESS_CONNECT_RESPONSE};
+use crate::NoProxyValue;
 
 pub struct HttpProxy {
     upstream_proxy_host: String,
     upstream_proxy_port: u32,
-    no_proxy: Vec<String>,
+    no_proxy: Vec<NoProxyValue>,
     network_watcher: NetworkWatchHandle,
 }
 
 impl HttpProxy {
 
-    pub fn new(upstream_proxy_host: String, upstream_proxy_port:u32, no_proxy: Vec<String>, network_watcher: NetworkWatchHandle) -> Self {
+    pub fn new(upstream_proxy_host: String, upstream_proxy_port:u32, no_proxy: Vec<NoProxyValue>, network_watcher: NetworkWatchHandle) -> Self {
         Self {
             upstream_proxy_host,
             upstream_proxy_port,
@@ -29,7 +32,7 @@ impl HttpProxy {
         println!("👂 HTTP Proxy listening on {}:{}", &host, &port);
         println!("⚙️  Upstream Proxy: {}", format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port));
         if !self.no_proxy.is_empty() {
-            println!("⚙️  No Proxy Hosts: {}", &self.no_proxy.join(", "));
+            println!("⚙️  No Proxy Hosts: {}", &self.no_proxy.iter().map(|h| h.to_string()).join(", "));
         }
 
         loop {
@@ -63,14 +66,14 @@ struct ProxyTunnel {
     source_socket: TcpStream,
     upstream_proxy_host: String,
     upstream_proxy_port: u32,
-    no_proxy: Vec<String>,
+    no_proxy: Vec<NoProxyValue>,
     network_watcher: NetworkWatchHandle,
     dest_socket: Option<TcpStream>,
     state: ConnectionState,
 }
 
 impl ProxyTunnel {
-    pub fn new(source_socket: TcpStream, upstream_proxy_host: String, upstream_proxy_port: u32, no_proxy: Vec<String>, network_watcher: NetworkWatchHandle) -> Self {
+    pub fn new(source_socket: TcpStream, upstream_proxy_host: String, upstream_proxy_port: u32, no_proxy: Vec<NoProxyValue>, network_watcher: NetworkWatchHandle) -> Self {
         Self {
             source_socket,
             upstream_proxy_host,
@@ -178,7 +181,7 @@ impl ProxyTunnel {
 
     async fn setup_dest_socket(&mut self, updated_type: NetworkType, target_host: &str) -> Result<(), anyhow::Error> {
         let no_proxy = self.no_proxy.iter().any(
-            |no_proxy_host| target_host.contains(no_proxy_host)
+            |no_proxy_host| no_proxy_host.matches_host(&target_host)
         );
 
         if no_proxy {
