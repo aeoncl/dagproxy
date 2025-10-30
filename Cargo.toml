@@ -23,6 +23,11 @@ libc = "1.0.0-alpha.1"
 #native-tls = "0.2.14"
 #curl = { version = "0.4.49", features = ["ssl", "spnego"] }
 
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"
+
+
 [target.'cfg(windows)'.dependencies]
 windivert = { version = "0.6.0" }
 windivert-sys = "0.10.0"
