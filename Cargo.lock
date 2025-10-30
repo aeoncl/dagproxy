@@ -271,6 +271,7 @@ dependencies = [
  "bytes",
  "chrono",
  "cross-krb5",
+ "etherparse 0.19.0",
  "fork_stream",
  "httparse",
  "libc 1.0.0-alpha.1",
@@ -282,6 +283,7 @@ dependencies = [
  "tls-client_hello-parser",
  "tokio",
  "windivert",
+ "windivert-sys",
 ]
 
 [[package]]
@@ -335,6 +337,15 @@ name = "etherparse"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "827292ea592108849932ad8e30218f8b1f21c0dfd0696698a18b5d0aed62d990"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
+name = "etherparse"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b119b9796ff800751a220394b8b3613f26dd30c48f254f6837e64c464872d1c7"
 dependencies = [
  "arrayvec",
 ]
@@ -1430,7 +1441,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc6b6833a760d1c36b489314a5541a12a39d162dc8341d8f6f400212b96d3df1"
 dependencies = [
- "etherparse",
+ "etherparse 0.13.0",
  "thiserror 1.0.69",
  "windivert-sys",
  "windows 0.48.0",

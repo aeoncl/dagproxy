@@ -1,0 +1,11 @@
+[target.'cfg(windows)']
+#runner = "powershell -Command Start-Process -Verb runAs -FilePath"
+
+
+[env]
+WINDIVERT_PATH="E:\\Nextcloud\\Desktop\\WinDivert-2.2.2-A"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-L", "E:/Nextcloud/Desktop/WinDivert-2.2.2-A/x64",
+]

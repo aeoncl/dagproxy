@@ -13,6 +13,8 @@ use std::panic::{set_hook, take_hook};
 use http_proxy::HttpProxy;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
+use crate::transparent_proxy::windows::setup_transparent_proxy_redirect;
+
 fn main() {
     print_header();
 
@@ -26,9 +28,11 @@ fn main() {
 
     let args = DagProxyArgs::from_env_args(env_args);
 
+    println!("hello");
+
     if args.transparent_proxy {
-        println!("Transparent mode coming soon ;)");
-        return;
+        println!("Setting up transparent proxy...");
+        setup_transparent_proxy_redirect("127.0.0.2", args.listen_port_http as u16, args.listen_port_https).unwrap();
     }
 
     let rt = runtime::Builder::new_multi_thread()
