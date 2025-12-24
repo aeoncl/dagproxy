@@ -7,14 +7,14 @@ mod kerberos;
 mod network_watcher;
 
 use crate::config::Config;
-use crate::config_dto::{ConfigDto, ProxyConfigDto, ProxySubnet};
+use crate::config_dto::ConfigDto;
 use http_proxy::HttpProxy;
 use netaddr2::{Contains, Netv4Addr};
 use std::fmt::{Display, Formatter};
-use std::{env, fs};
 use std::net::IpAddr;
 use std::panic::{set_hook, take_hook};
 use std::str::FromStr;
+use std::{env, fs};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
 
@@ -26,7 +26,7 @@ fn main() {
 
     let config_json = fs::read_to_string(config_file).unwrap();
     let config_dto: ConfigDto = serde_json::from_str(&config_json).unwrap();
-    let config = config_dto.to_config();
+    let config: Config = config_dto.into();
 
     let rt = runtime::Builder::new_current_thread()
         .enable_all()
