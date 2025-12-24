@@ -1,7 +1,7 @@
 # DagProxy
 
 DagProxy is a kerberos auth proxy. 
-It's main purpose is to deal with an annoying corporate proxy with expiring kerberos sessions every 15 minutes.
+Its main purpose is to deal with an annoying corporate proxy with expiring kerberos sessions every 15 minutes.
 
 ## Capabilities 
 - [x] SPNEGO proxy auth using host kerberos session
@@ -38,7 +38,7 @@ dagproxy --corporate-subnets 0.0.0.0/16,10.10.0.0/16 --upstream-proxy 'annoyingp
 ```
 # Linux exe
 sudo apt-get install -y libkrb5-dev
-sudo apt-get install -y clang
+`sudo apt-get install -y clang`
 
 cargo build --release
 
