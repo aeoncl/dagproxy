@@ -8,8 +8,9 @@ pub struct ConfigDto {
     pub port: u32,
     pub subnets: Vec<ProxyConfigDto>,
 }
-impl ConfigDto {
-    pub fn to_config(self) -> Config {
+
+impl Into<Config> for ConfigDto {
+    fn into(self) -> Config {
         let subnets = self.subnets.iter().map(|subnet| match subnet {
             ProxyConfigDto::Direct => (SubNetKey::Default, ProxyConfig::Direct),
             ProxyConfigDto::Proxy(subnet_dto) => (
