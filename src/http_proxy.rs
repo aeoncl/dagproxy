@@ -1,96 +1,78 @@
-use join_string::Join;
-use netaddr2::Netv4Addr;
-use crate::network_watcher::{NetworkType, NetworkWatchHandle};
+use crate::config::ProxyConfig;
+use crate::http::{
+    RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry,
+    parse_host_from_request,
+};
+use crate::network_watcher::NetworkWatchHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use crate::http::{connect_to_proxy, connect_with_retry, parse_host_from_request, RequestType, SUCCESS_CONNECT_RESPONSE};
-use crate::NoProxyValue;
 
 pub struct HttpProxy {
-    upstream_proxy_host: String,
-    upstream_proxy_port: u32,
-    no_proxy: Vec<NoProxyValue>,
     network_watcher: NetworkWatchHandle,
 }
 
 impl HttpProxy {
-
-    pub fn new(upstream_proxy_host: String, upstream_proxy_port:u32, no_proxy: Vec<NoProxyValue>, network_watcher: NetworkWatchHandle) -> Self {
+    pub fn new(
+        network_watcher: NetworkWatchHandle,
+    ) -> Self {
         Self {
-            upstream_proxy_host,
-            upstream_proxy_port,
-            no_proxy,
-            network_watcher
+            network_watcher,
         }
     }
 
     pub async fn start(&mut self, host: String, port: u32) -> Result<(), anyhow::Error> {
-
-        let listener = TcpListener::bind(format!("{}:{}", &host, &port))
-            .await?;
+        let listener = TcpListener::bind(format!("{}:{}", &host, &port)).await?;
 
         println!("👂 HTTP Proxy listening on {}:{}", &host, &port);
-        println!("⚙️  Upstream Proxy: {}", format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port));
-        if !self.no_proxy.is_empty() {
-            println!("⚙️  No Proxy Hosts: {}", &self.no_proxy.iter().map(|h| h.to_string()).join(", "));
-        }
 
         loop {
-
             match listener.accept().await {
                 Ok((source_socket, _)) => {
-
-                    let upstream_proxy_host = self.upstream_proxy_host.clone();
-                    let upstream_proxy_port = self.upstream_proxy_port.clone();
                     let network_watcher = self.network_watcher.clone();
-                    let no_proxy = self.no_proxy.clone();
 
                     let _ = tokio::spawn(async move {
-                        let mut proxy_tunnel = ProxyTunnel::new(source_socket, upstream_proxy_host, upstream_proxy_port, no_proxy, network_watcher);
+                        let mut proxy_tunnel = ProxyTunnel::new(
+                            source_socket,
+                            network_watcher,
+                        );
                         proxy_tunnel.start().await;
                     });
                 }
                 Err(err) => {
-                    println!("An error has occured accepting incoming connection: {}", err);
+                    println!(
+                        "An error has occurred accepting incoming connection: {}",
+                        err
+                    );
                 }
             }
-
-        };
-
+        }
     }
-
-
 }
 
 struct ProxyTunnel {
     source_socket: TcpStream,
-    upstream_proxy_host: String,
-    upstream_proxy_port: u32,
-    no_proxy: Vec<NoProxyValue>,
     network_watcher: NetworkWatchHandle,
     dest_socket: Option<TcpStream>,
     state: ConnectionState,
 }
 
 impl ProxyTunnel {
-    pub fn new(source_socket: TcpStream, upstream_proxy_host: String, upstream_proxy_port: u32, no_proxy: Vec<NoProxyValue>, network_watcher: NetworkWatchHandle) -> Self {
+    pub fn new(
+        source_socket: TcpStream,
+        network_watcher: NetworkWatchHandle,
+    ) -> Self {
         Self {
             source_socket,
-            upstream_proxy_host,
-            upstream_proxy_port,
-            no_proxy,
             network_watcher,
             dest_socket: None,
-            state: ConnectionState::Initializing
+            state: ConnectionState::Initializing,
         }
     }
 
     pub async fn start(&mut self) {
-
         let mut network_update_receiver = self.network_watcher.subscribe();
 
         loop {
-
             let mut source_read_buffer = [0; 2048];
             let mut dest_read_buffer = [0; 2048];
 
@@ -154,8 +136,12 @@ impl ProxyTunnel {
                 self.initialize(data).await?;
                 Ok(())
             }
-            ConnectionState::Forwarding(target_host) => {
-                self.dest_socket.as_mut().expect("to be here").write_all(&data).await?;
+            ConnectionState::Forwarding(_) => {
+                self.dest_socket
+                    .as_mut()
+                    .expect("to be here")
+                    .write_all(&data)
+                    .await?;
                 Ok(())
             }
         }
@@ -169,48 +155,61 @@ impl ProxyTunnel {
 
         match request_type {
             RequestType::Connect => {
-                self.source_socket.write_all(SUCCESS_CONNECT_RESPONSE).await?;
+                self.source_socket
+                    .write_all(SUCCESS_CONNECT_RESPONSE)
+                    .await?;
             }
             RequestType::Other => {
-                self.dest_socket.as_mut().expect("to be here").write_all(data).await?;
+                self.dest_socket
+                    .as_mut()
+                    .expect("to be here")
+                    .write_all(data)
+                    .await?;
             }
         }
 
         Ok(())
     }
 
-    async fn setup_dest_socket(&mut self, updated_type: NetworkType, target_host: &str) -> Result<(), anyhow::Error> {
-        let no_proxy = self.no_proxy.iter().any(
-            |no_proxy_host| no_proxy_host.matches_host(&target_host)
-        );
-
-        if no_proxy {
-            if self.dest_socket.is_none() {
-                println!("💻 -> {} [NO_PROXY]", &target_host);
-                self.dest_socket =  Some(connect_with_retry(&target_host).await?);
-            }
-            return Ok(());
-        }
-
+    async fn setup_dest_socket(
+        &mut self,
+        updated_type: ProxyConfig,
+        target_host: &str,
+    ) -> Result<(), anyhow::Error> {
         match updated_type {
-            NetworkType::Direct => {
+            ProxyConfig::Direct => {
                 println!("💻 -> {}", &target_host);
-                self.dest_socket =  Some(connect_with_retry(&target_host).await?);
+                self.dest_socket = Some(connect_with_retry(&target_host).await?);
                 Ok(())
-            },
-            NetworkType::Proxied => {
-                let proxy_uri = &format!("{}:{}", &self.upstream_proxy_host, &self.upstream_proxy_port);
-                println!("💻 -> {} -> {}", &proxy_uri ,&target_host);
-                self.dest_socket = Some(connect_to_proxy(proxy_uri, &target_host).await?);
-                Ok(())
+            }
+            ProxyConfig::Proxy {
+                host,
+                port,
+                no_proxy,
+            } => {
+                let bypass_proxy = no_proxy
+                    .iter()
+                    .any(|no_proxy_host| no_proxy_host.matches_host(&target_host));
+
+                if bypass_proxy {
+                    if self.dest_socket.is_none() {
+                        println!("💻 -> {} [NO_PROXY]", &target_host);
+                        self.dest_socket = Some(connect_with_retry(&target_host).await?);
+                    }
+                    Ok(())
+                } else {
+                    let proxy_uri = &format!("{}:{}", &host, &port);
+                    println!("💻 -> {} -> {}", &proxy_uri, &target_host);
+                    self.dest_socket = Some(connect_to_proxy(proxy_uri, &target_host).await?);
+                    Ok(())
+                }
             }
         }
     }
 }
 
-#[derive(Clone)]
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 enum ConnectionState {
     Initializing,
-    Forwarding(String)
+    Forwarding(String),
 }
