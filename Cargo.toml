@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 netaddr2 = "0.10.0"
-netwatcher = "0.4.0"
+#netwatcher = "0.4.0"
 tokio = { version = "1.47.1", features = ["full"] }
 anyhow = "1.0.100"
 httparse = "1.10.1"
@@ -20,3 +20,6 @@ join-string = "0.3.0"
 #curl = { version = "0.4.49", features = ["ssl", "spnego"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[dependencies.netwatcher]
+path = "./libs/netwatcher"

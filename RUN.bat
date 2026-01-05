@@ -1,0 +1,1 @@
+.\target\debug\dagproxy.exe config.json

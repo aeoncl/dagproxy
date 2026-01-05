@@ -1,0 +1,37 @@
+{
+  "port": 3232,
+  "subnets": [
+    {
+      "Proxy": {
+        "ip_range": "10.80.0.0/16",
+        "proxy_host": "proxygate.onemrva.priv",
+        "proxy_port": 8888,
+        "no_proxy": [
+          "localhost",
+          "rvaonem.priv",
+          "rvaonem.fgov.be",
+          "169.254.169.254",
+          "cloud.rvadc.be",
+          "onemrva.priv",
+          "teams.microsoft.com"
+        ]
+      }
+    },
+    {
+      "Proxy": {
+        "ip_range": "10.130.0.0/16",
+        "proxy_host": "proxygate.onemrva.priv",
+        "proxy_port": 8888,
+        "no_proxy": [
+          "localhost",
+          "rvaonem.priv",
+          "rvaonem.fgov.be",
+          "169.254.169.254",
+          "cloud.rvadc.be",
+          "onemrva.priv"
+        ]
+      }
+    },
+    "Direct"
+  ]
+}

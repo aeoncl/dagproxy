@@ -1,0 +1,35 @@
+name: Rust Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build
+      run: cargo build
+
+    - name: Run lib tests
+      run: cargo test --lib -- --nocapture
+      
+    - name: Run integration tests
+      run: cargo test --test api_test -- --include-ignored --nocapture
+
+    - name: Run clippy
+      run: cargo clippy --all-targets -- -D warnings
+      
+    - name: Check formatting
+      run: cargo fmt --all -- --check
