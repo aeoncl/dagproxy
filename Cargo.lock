@@ -593,9 +593,9 @@ checksum = "d6680d6da37e96edea724d1b065d82b516040191a38453a6a440d8000eb3b479"
 
 [[package]]
 name = "netwatcher"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9feecf636b708f9af13ae49dfaa065997a4d9e1da60b59343a3825b99e4392a1"
+checksum = "39d9eee015f242646a9bad2d6ea668651a6c053d0065bec923107b0a43e89a69"
 dependencies = [
  "android-build",
  "jni",

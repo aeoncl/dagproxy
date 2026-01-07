@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 netaddr2 = "0.10.0"
-netwatcher = "0.4.0"
+netwatcher = "0.4.1"
 tokio = { version = "1.47.1", features = ["full"] }
 anyhow = "1.0.100"
 httparse = "1.10.1"
