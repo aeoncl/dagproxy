@@ -7,7 +7,8 @@ Its main purpose is to deal with an annoying corporate proxy with expiring kerbe
 - [x] SPNEGO proxy auth using host kerberos session
 - [x] Toggle between direct and proxied network
 - [x] Validated on Linux
-- [ ] Validated on Windows
+- [x] Validated on Windows
+- [ ] Create main.rs for windows to enable dagproxy as a Windows service
 - [ ] Transparent proxy using ip tables on Linux
 - [ ] Transparent proxy using WinDivert on Windows
 
