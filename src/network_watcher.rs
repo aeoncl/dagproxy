@@ -2,7 +2,6 @@ use crate::config::{Config, ProxyConfig};
 use crate::config::SubNetKey;
 use crate::config::SubNetKey::Subnet;
 use netaddr2::{Mask, Netv4Addr};
-use netwatcher::WatchHandle;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch::Receiver;
@@ -10,9 +9,7 @@ use crate::config::ProxyConfig::Direct;
 
 #[derive(Clone)]
 pub(crate) struct NetworkWatchHandle {
-    network_type: Arc<Mutex<ProxyConfig>>,
     notification_receiver: Receiver<ProxyConfig>,
-    handle: Arc<Mutex<WatchHandle>>,
 }
 
 impl NetworkWatchHandle {
@@ -34,7 +31,7 @@ pub(crate) fn watch_networks(config: Config) -> NetworkWatchHandle {
         tokio::sync::watch::channel::<ProxyConfig>(ProxyConfig::Direct);
 
     let cloned_network_type = network_type.clone();
-    let handle = netwatcher::watch_interfaces(move |update| {
+    netwatcher::watch_interfaces(move |update| {
         // This callback will fire once immediately with the existing state
 
         let current_subnet = config.subnets.iter().find(|(key, _)| match key {
@@ -71,9 +68,7 @@ pub(crate) fn watch_networks(config: Config) -> NetworkWatchHandle {
     .unwrap();
 
     NetworkWatchHandle {
-        network_type,
         notification_receiver,
-        handle: Arc::new(Mutex::new(handle)),
     }
 }
 
@@ -85,10 +80,4 @@ impl ContainsIpV4 for Netv4Addr {
         let other: Self = Self::from(*ip);
         other.addr().mask(&self.mask()) == self.addr()
     }
-}
-
-#[derive(Clone)]
-pub(crate) enum NetworkType {
-    Direct,
-    Proxied,
 }

@@ -15,7 +15,7 @@ pub mod kerberos {
 
         let proxy_spn = format!("HTTP/{}", proxy_without_port);
 
-        let (kerberos_client, token) = ClientCtx::new(InitiateFlags::empty(), None, &proxy_spn, None)?;
+        let (_, token) = ClientCtx::new(InitiateFlags::empty(), None, &proxy_spn, None)?;
         let token = Bytes::copy_from_slice(&*token);
         let token_b64 = general_purpose::STANDARD.encode(token);
 

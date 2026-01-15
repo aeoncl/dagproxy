@@ -12,17 +12,25 @@ use http_proxy::HttpProxy;
 use netaddr2::{Contains, Netv4Addr};
 use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
-use std::panic::{set_hook, take_hook};
 use std::str::FromStr;
 use std::{env, fs};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime;
 
 fn main() {
     print_header();
 
     let env_args: Vec<String> = env::args().collect();
-    let config_file = env_args.get(1).expect("Missing config file path");
+    let config_file = env_args
+        .windows(2)
+        .find_map(|window| {
+            if window[0] == "-c" || window[0] == "--config" {
+                Some(window[1].clone())
+            } else {
+                None
+            }
+        })
+        .expect("Missing config file path. Usage: -c <path> or --config <path>");
+    println!("Loading configuration from: {}", config_file);
 
     let config_json = fs::read_to_string(config_file).unwrap();
     let config_dto: ConfigDto = serde_json::from_str(&config_json).unwrap();
@@ -56,62 +64,6 @@ fn print_header() {
           |___/ |_|                 |__/
     "#;
     println!("{}", HEADER);
-}
-
-fn print_help() {
-    let min_length = 45;
-
-    println!("Usage:");
-    println!("\tdagproxy [config_file_path]");
-    println!();
-
-    let example_config = r#"
-     {
-       "port": 3232,
-       "subnets": [
-         {
-           "Proxy": {
-             "ip_range": "10.0.0.0/24",
-             "proxy_host": "upstream.proxy",
-             "proxy_port": 8080,
-             "no_proxy": [
-               "localhost",
-               "google.com"
-             ]
-           }
-         },
-         {
-           "Proxy": {
-             "ip_range": "11.0.0.0/24",
-             "proxy_host": "upstream.proxy",
-             "proxy_port": 8080,
-             "no_proxy": [
-               "localhost",
-               "google.com"
-             ]
-           }
-         },
-         "Direct"
-       ]
-     }"#.trim();
-
-    println!("Config example:");
-    println!("{}", example_config);
-
-    println!("Example:");
-    println!(
-        "\tdagproxy /home/user/dagproxy/config.json"
-    );
-}
-
-fn print_padded(to_pad: &str, other_half: &str, min_length: i32) {
-    let spaces_to_add: i32 = min_length - to_pad.len() as i32;
-    print!("{}", to_pad);
-    if (spaces_to_add > 0) {
-        print!("{}", ".".repeat(spaces_to_add as usize));
-    }
-    print!(" {}", other_half);
-    println!();
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -160,121 +112,6 @@ impl Display for NoProxyValue {
         }
     }
 }
-
-struct DagProxyArgs {
-    upstream_proxy_host: String,
-    upstream_proxy_port: u32,
-    no_proxy: Vec<NoProxyValue>,
-    corporate_subnets: Vec<Netv4Addr>,
-    listen_port_http: u32,
-    listen_port_https: u32,
-    transparent_proxy: bool,
-}
-impl DagProxyArgs {
-    fn from_env_args(env_args: Vec<String>) -> Self {
-        set_hook(Box::new(|info| {
-            if let Some(s) = info.payload().downcast_ref::<String>() {
-                println!("{}", s);
-            }
-        }));
-
-        let (upstream_proxy_host, upstream_proxy_port) = {
-            let upstream_proxy = env_args
-                .windows(2)
-                .find_map(|window| {
-                    if window[0] == "--upstream-proxy" {
-                        Some(window[1].to_owned())
-                    } else {
-                        None
-                    }
-                })
-                .expect("Missing required argument: --upstream-proxy <host>:<port>");
-
-            let mut split = upstream_proxy.split(":");
-            (
-                split
-                    .next()
-                    .expect("upstream proxy to have host")
-                    .to_owned(),
-                u32::from_str(split.next().expect("upstream proxy to have port"))
-                    .expect("upstream proxy port to be a number"),
-            )
-        };
-
-        let no_proxy_hosts = env_args
-            .windows(2)
-            .find_map(|window| {
-                if window[0] == "--no-proxy" {
-                    let no_proxies = window[1]
-                        .split(",")
-                        .map(|host| {
-                            NoProxyValue::from_str(host)
-                                .expect(format!("Invalid no proxy host: {}", &host).as_str())
-                        })
-                        .collect::<Vec<_>>();
-
-                    Some(no_proxies)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_default();
-
-        let corporate_subnets = env_args
-            .windows(2)
-            .find_map(|window| {
-                if window[0] == "--corporate-subnets" {
-                    let subnets = window[1]
-                        .split(",")
-                        .map(|subnet| Netv4Addr::from_str(subnet).unwrap())
-                        .collect::<Vec<_>>();
-                    Some(subnets)
-                } else {
-                    None
-                }
-            })
-            .expect("Missing required argument: --corporate-subnets <0.0.0.0/32>,<1.1.1.1/24>");
-
-        let listen_port = env_args
-            .windows(2)
-            .find_map(|window| {
-                if window[0] == "--listen-port" {
-                    Some(u32::from_str(&window[1]).expect("port to be a number"))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(3232);
-
-        let listen_port_https = env_args
-            .windows(2)
-            .find_map(|window| {
-                if window[0] == "--listen-port-https" {
-                    Some(u32::from_str(&window[1]).expect("port to be a number"))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(listen_port + 1);
-
-        let transparent_proxy = env_args
-            .iter()
-            .any(|window| window.as_str() == "--transparent");
-
-        let _ = take_hook();
-
-        Self {
-            upstream_proxy_host,
-            upstream_proxy_port,
-            no_proxy: no_proxy_hosts,
-            corporate_subnets,
-            listen_port_http: listen_port,
-            listen_port_https,
-            transparent_proxy,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::NoProxyValue;

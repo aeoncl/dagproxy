@@ -24,7 +24,7 @@ pub(crate) fn parse_host_from_request(data: &[u8]) -> Result<(RequestType, Strin
     } else {
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
-        let res = req.parse(data)?;
+        req.parse(data)?;
 
         let path = req.path.unwrap();
 
@@ -93,7 +93,7 @@ pub(crate) async fn connect_to_proxy(proxy_host: &str, target_host: &str) -> Res
     } else if data.starts_with(b"HTTP/1.1 2") {
         Ok(proxy_stream)
     } else {
-        if (bytes_read != 0) {
+        if bytes_read != 0 {
             Err(anyhow!("Received Error from proxy: {}", String::from_utf8_lossy(&data) ))
         } else {
             Err(anyhow!("Proxy closed connection for target_host: {}", &target_host))

@@ -12,7 +12,7 @@ pub struct HttpProxy {
 }
 
 impl HttpProxy {
-    pub fn new(
+    pub(crate) fn new(
         network_watcher: NetworkWatchHandle,
     ) -> Self {
         Self {
@@ -39,7 +39,7 @@ impl HttpProxy {
                     });
                 }
                 Err(err) => {
-                    println!(
+                    eprintln!(
                         "An error has occurred accepting incoming connection: {}",
                         err
                     );
@@ -79,21 +79,21 @@ impl ProxyTunnel {
             tokio::select! {
                 network_update = network_update_receiver.changed() => {
                     if let Err(e) = network_update {
-                        println!("Error receiving network updates: {}", e);
+                        eprintln!("Error receiving network updates: {}", e);
                         break;
                     }
 
                     if let ConnectionState::Forwarding(target_host) = self.state.clone() {
                     let network_type = network_update_receiver.borrow_and_update().clone();
                         if let Err(e) = self.setup_dest_socket(network_type, &target_host).await {
-                            println!("Error switching connection: {}", e);
+                            eprintln!("Error switching connection: {}", e);
                             break;
                         }
                     }
                 },
                 from_destination = async { self.dest_socket.as_mut().expect("to be here").read(&mut dest_read_buffer).await }, if self.dest_socket.is_some() => {
                     if let Err(err) = from_destination {
-                        println!("Error reading from destination: {}", err);
+                        eprintln!("Error reading from destination: {}", err);
                         break;
                     }
 
@@ -109,7 +109,7 @@ impl ProxyTunnel {
                 },
                 from_source = self.source_socket.read(&mut source_read_buffer) => {
                     if let Err(err) = from_source {
-                        println!("Error reading from source: {}", err);
+                        eprintln!("Error reading from source: {}", err);
                         break;
                     }
 
@@ -121,7 +121,7 @@ impl ProxyTunnel {
 
                     let data = &source_read_buffer[..bytes_read];
                     if let Err(err) = self.on_message_from_source(data).await {
-                        println!("Error processing message from source: {}", err);
+                        eprintln!("Error processing message from source: {}", err);
                         break;
                     }
 
