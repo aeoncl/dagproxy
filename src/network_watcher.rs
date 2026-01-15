@@ -4,12 +4,16 @@ use crate::config::SubNetKey::Subnet;
 use netaddr2::{Mask, Netv4Addr};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
+use netwatcher::WatchHandle;
 use tokio::sync::watch::Receiver;
 use crate::config::ProxyConfig::Direct;
+
 
 #[derive(Clone)]
 pub(crate) struct NetworkWatchHandle {
     notification_receiver: Receiver<ProxyConfig>,
+    #[allow(dead_code)]
+    handle: Arc<Mutex<WatchHandle>>,
 }
 
 impl NetworkWatchHandle {
@@ -31,7 +35,7 @@ pub(crate) fn watch_networks(config: Config) -> NetworkWatchHandle {
         tokio::sync::watch::channel::<ProxyConfig>(ProxyConfig::Direct);
 
     let cloned_network_type = network_type.clone();
-    netwatcher::watch_interfaces(move |update| {
+    let handle = netwatcher::watch_interfaces(move |update| {
         // This callback will fire once immediately with the existing state
 
         let current_subnet = config.subnets.iter().find(|(key, _)| match key {
@@ -69,6 +73,7 @@ pub(crate) fn watch_networks(config: Config) -> NetworkWatchHandle {
 
     NetworkWatchHandle {
         notification_receiver,
+        handle: Arc::new(Mutex::new(handle)),
     }
 }
 
