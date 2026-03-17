@@ -1,37 +1,53 @@
 # DagProxy
 
-DagProxy is a kerberos auth proxy. 
-Its main purpose is to deal with an annoying corporate proxy with expiring kerberos sessions every 15 minutes.
+DagProxy is a local kerberos auth forwarding proxy build in Rust. 
+It's main purpose is to make the system proxy configuration hotswappable, allowing you to switch between multiple proxy configurations without restarting your apps.
+It also handle proxy auth refresh using kerberos SP-NEGO protocol.
 
 ## Capabilities 
 - [x] SPNEGO proxy auth using host kerberos session
 - [x] Toggle between direct and proxied network
-- [x] Validated on Linux
-- [x] Validated on Windows
-- [ ] Create main.rs for windows to enable dagproxy as a Windows service
-- [ ] Transparent proxy using ip tables on Linux
-- [ ] Transparent proxy using WinDivert on Windows
 
 ## Usage
 
-```
-Usage:
-        dagproxy [options]
+`dagproxy [path_to_config-file.json]`
 
-Options:
-        --corporate-subnets <subnet1>,<subnet2>..... Forwards trafic to the upstream proxy when on one of those subnets
-        --upstream-proxy <host>:<port>.............. The upstream proxy to forward traffic to
-        --listen-port <port>........................ The port to listen on for HTTP traffic. Defaults to 3232
-        --listen-port-https <port>.................. The port to listen on for HTTPS traffic. Defaults to 3233. Only used when --transparent is set.
-        --no-proxy <host1>,<host2>.................. Hosts to not proxy. Defaults to none.
-        --transparent............................... Use transparent proxying. Defaults to false. This will require you to install a certificate on your machine.
-        --help...................................... Print this help message
-```
 
-## Example
+## Config File
 
 ```
-dagproxy --corporate-subnets 0.0.0.0/16,10.10.0.0/16 --upstream-proxy 'annoyingproxy.host.internal:7777'
+TODO
+```
+
+## Usage as a systemd user service
+
+It's important to run it as a user service as it needs to access the `KRB5CCNAME` environment variable.
+
+### User service file 
+
+`/home/user/.config/systemd/user/dagproxy.service`
+```
+[Unit]
+Description=DagProxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/user/.local/bin/dagproxy /home/user/.config/dagproxy/config.json
+Restart=on-failure
+RestartSec=5
+
+[Install]
+```
+
+### Kerberos Config
+Set the `default_ccache_name` in `/etc/krb5.conf` to avoid aving to restart the service when the KRB token changes location.
+
+```
+[libdefaults]
+...
+default_ccache_name = FILE:/tmp/krb5cc
+...
 ```
 
 ## Build on Ubuntu
