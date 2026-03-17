@@ -1,7 +1,9 @@
 # DagProxy
 
-DagProxy is a local kerberos auth forwarding proxy build in Rust. 
+DagProxy is a local kerberos auth forwarding proxy build in Rust.
+
 It's main purpose is to make the system proxy configuration hotswappable, allowing you to switch between multiple proxy configurations without restarting your apps.
+
 It also handle proxy auth refresh using kerberos SP-NEGO protocol.
 
 ## Capabilities 
@@ -12,11 +14,42 @@ It also handle proxy auth refresh using kerberos SP-NEGO protocol.
 
 `dagproxy [path_to_config-file.json]`
 
-
 ## Config File
 
-```
-TODO
+Dag proxy will detect the ip range you are in and use the appropriate subnet configuration.
+
+```json
+{
+    "port": 3232,
+    "subnets": [
+        {
+            "Proxy": {
+                "ip_range": "10.69.0.0/16",
+                "proxy_host": "corporateproxy.onemrva.priv",
+                "proxy_port": 1234,
+                "no_proxy": [
+                    "localhost",
+                    "169.254.169.254",
+                    "privatedomain.priv"
+                ]
+            }
+        },
+        {
+            "Proxy": {
+                "ip_range": "10.130.0.0/16",
+                "proxy_host": "corporateproxy.onemrva.priv",
+                "proxy_port": 1234,
+                "no_proxy": [
+                    "localhost",
+                    "169.254.169.254",
+                    "otherprivatedomain.priv"
+                ]
+            }
+        },
+        "Direct"
+    ]
+}
+
 ```
 
 ## Usage as a systemd user service
