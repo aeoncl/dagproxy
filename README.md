@@ -1,6 +1,6 @@
 # DagProxy
 
-DagProxy is a local kerberos auth forwarding proxy build in Rust.
+DagProxy is a local kerberos auth forwarding proxy built in Rust.
 
 It's main purpose is to make the system proxy configuration hotswappable, allowing you to switch between multiple proxy configurations without restarting your apps.
 
