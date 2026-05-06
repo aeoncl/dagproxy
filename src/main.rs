@@ -42,7 +42,7 @@ fn main() {
         .unwrap();
 
     rt.block_on(async move {
-        let (handle, transport) = network_watcher::watch_networks(config.clone());
+        let (_drop_handle, transport) = network_watcher::watch_networks(config.clone());
         let mut http_proxy = HttpProxy::new(transport);
 
         http_proxy
