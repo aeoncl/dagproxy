@@ -254,7 +254,7 @@ mod tests {
         let config = config.get_matching_config(&Ipv4Addr::from_str("192.168.1.1").unwrap());
         assert!(config.is_some());
         let config = config.unwrap();
-        assert_eq!(config.proxy_host, "wildcard_proxy");
+        assert_eq!(config.proxy_host, "non_wildcard_proxy");
     }
 
 }

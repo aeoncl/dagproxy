@@ -1,16 +1,16 @@
 use crate::config::{ForwardPolicy, SubnetConfig};
 use crate::http::{RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry, parse_host_from_request, NetworkTarget};
-use crate::network_watcher::NetworkWatchHandle;
+use crate::network_watcher::NetworkWatchTransport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 pub struct HttpProxy {
-    network_watcher: NetworkWatchHandle,
+    network_watcher: NetworkWatchTransport,
 }
 
 impl HttpProxy {
     pub(crate) fn new(
-        network_watcher: NetworkWatchHandle,
+        network_watcher: NetworkWatchTransport,
     ) -> Self {
         Self {
             network_watcher,
@@ -48,7 +48,7 @@ impl HttpProxy {
 
 struct ProxyTunnel {
     source_socket: TcpStream,
-    network_watcher: NetworkWatchHandle,
+    network_watcher: NetworkWatchTransport,
     dest_socket: Option<TcpStream>,
     state: ConnectionState,
 }
@@ -56,7 +56,7 @@ struct ProxyTunnel {
 impl ProxyTunnel {
     pub fn new(
         source_socket: TcpStream,
-        network_watcher: NetworkWatchHandle,
+        network_watcher: NetworkWatchTransport,
     ) -> Self {
         Self {
             source_socket,

@@ -42,8 +42,8 @@ fn main() {
         .unwrap();
 
     rt.block_on(async move {
-        let network_handle = network_watcher::watch_networks(config.clone());
-        let mut http_proxy = HttpProxy::new(network_handle.clone());
+        let (handle, transport) = network_watcher::watch_networks(config.clone());
+        let mut http_proxy = HttpProxy::new(transport);
 
         http_proxy
             .start("127.0.0.1".to_owned(), config.port)
