@@ -1,5 +1,5 @@
 pub mod kerberos {
-    use crate::http::connect_with_retry;
+    use crate::http::{NetworkTarget, connect_with_retry};
     use base64::Engine;
     use base64::engine::general_purpose;
     use bytes::Bytes;
@@ -22,14 +22,8 @@ pub mod kerberos {
         }
     }
 
-    pub async fn negotiate_with_krb5(proxy_host: &str) -> Result<(), anyhow::Error> {
-        let proxy_without_port = {
-            let parts = proxy_host.split(":").collect::<Vec<&str>>();
-            parts
-                .first()
-                .map(|e| e.to_owned())
-                .ok_or(anyhow::anyhow!("Could not split proxy on :"))
-        }?;
+    pub async fn negotiate_with_krb5(proxy: &NetworkTarget) -> Result<(), anyhow::Error> {
+        let proxy_without_port = proxy.host();
 
         let proxy_spn = format!("HTTP/{}", proxy_without_port);
 
@@ -42,7 +36,7 @@ pub mod kerberos {
         let token = Bytes::copy_from_slice(&*token);
         let token_b64 = general_purpose::STANDARD.encode(token);
 
-        let mut proxy_stream = connect_with_retry(proxy_host).await?;
+        let mut proxy_stream = connect_with_retry(proxy).await?;
         proxy_stream.write_all(format!("GET http://{} HTTP/1.1\r\nHost: {}\r\nProxy-Authorization: Negotiate {}\r\n\r\n", "google.com", "google.com", &token_b64).as_bytes()).await?;
         proxy_stream.flush().await?;
 

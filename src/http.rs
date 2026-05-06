@@ -100,8 +100,8 @@ impl Display for NetworkTarget {
     }
 }
 
-pub(crate) async fn connect_with_retry(host: &str) -> Result<TcpStream, io::Error> {
-    (|| async { TcpStream::connect(&host).await })
+pub(crate) async fn connect_with_retry(target: &NetworkTarget) -> Result<TcpStream, io::Error> {
+    (|| async { TcpStream::connect(target.to_string()).await })
         .retry(
             &ExponentialBuilder::default()
                 .with_min_delay(Duration::from_millis(500))
@@ -112,18 +112,12 @@ pub(crate) async fn connect_with_retry(host: &str) -> Result<TcpStream, io::Erro
 }
 
 pub(crate) async fn connect_to_proxy(
-    proxy_host: &str,
-    target_host: &str,
+    proxy: &NetworkTarget,
+    target: &NetworkTarget,
 ) -> Result<TcpStream, anyhow::Error> {
-    let mut proxy_stream = connect_with_retry(proxy_host).await?;
+    let mut proxy_stream = connect_with_retry(proxy).await?;
     proxy_stream
-        .write_all(
-            format!(
-                "CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n",
-                &target_host, &target_host
-            )
-            .as_bytes(),
-        )
+        .write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", target, target).as_bytes())
         .await?;
     proxy_stream.flush().await?;
 
@@ -135,18 +129,14 @@ pub(crate) async fn connect_to_proxy(
     let result = if data.starts_with(b"HTTP/1.1 407") {
         println!("🤝 Received proxy 407, negotiating Kerberos");
         drop(proxy_stream);
-        negotiate_with_krb5(&proxy_host).await?;
+        negotiate_with_krb5(proxy).await?;
 
         println!("🤝 Proxy negotiate successfull");
 
-        let mut proxy_stream = connect_with_retry(proxy_host).await?;
+        let mut proxy_stream = connect_with_retry(proxy).await?;
         proxy_stream
             .write_all(
-                format!(
-                    "CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n",
-                    &target_host, &target_host
-                )
-                .as_bytes(),
+                format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", target, target).as_bytes(),
             )
             .await?;
         proxy_stream.flush().await?;
@@ -163,7 +153,7 @@ pub(crate) async fn connect_to_proxy(
         } else {
             Err(anyhow!(
                 "Proxy closed connection for target_host: {}",
-                &target_host
+                target
             ))
         }
     };

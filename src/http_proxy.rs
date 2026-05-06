@@ -172,18 +172,14 @@ impl ProxyTunnel {
 
         match forward_policy {
             ForwardPolicy::Proxy => {
-                let proxy_uri = &format!(
-                    "{}:{}",
-                    &subnet_config.proxy_host, &subnet_config.proxy_port
-                );
-                println!("💻 -> {} -> {}", &proxy_uri, &target_host);
-                self.dest_socket =
-                    Some(connect_to_proxy(proxy_uri, &target_host.to_string()).await?);
+                let proxy = NetworkTarget::new(&subnet_config.proxy_host, subnet_config.proxy_port);
+                println!("💻 -> {} -> {}", &proxy, &target_host);
+                self.dest_socket = Some(connect_to_proxy(&proxy, target_host).await?);
                 Ok(())
             }
             ForwardPolicy::Direct => {
                 println!("💻 -> {}", &target_host);
-                self.dest_socket = Some(connect_with_retry(&target_host.to_string()).await?);
+                self.dest_socket = Some(connect_with_retry(target_host).await?);
                 Ok(())
             }
             ForwardPolicy::PAC => {
