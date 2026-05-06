@@ -1,8 +1,5 @@
 use crate::config::{ForwardPolicy, SubnetConfig};
-use crate::http::{
-    RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry,
-    parse_host_from_request,
-};
+use crate::http::{RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry, parse_host_from_request, NetworkTarget};
 use crate::network_watcher::NetworkWatchHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -174,23 +171,25 @@ impl ProxyTunnel {
     async fn setup_dest_socket(
         &mut self,
         subnet_config: SubnetConfig,
-        target_host: &str,
+        target_host: &NetworkTarget,
     ) -> Result<(), anyhow::Error> {
 
-        let forward_policy = subnet_config.get_forward_policy(target_host).unwrap_or_default();
+        let forward_policy = subnet_config.get_forward_policy(target_host.host()).unwrap_or_default();
 
         match forward_policy {
             ForwardPolicy::Proxy => {
                     let proxy_uri = &format!("{}:{}", &subnet_config.proxy_host, &subnet_config.proxy_port);
                     println!("💻 -> {} -> {}", &proxy_uri, &target_host);
-                    self.dest_socket = Some(connect_to_proxy(proxy_uri, &target_host).await?);
+                    self.dest_socket = Some(connect_to_proxy(proxy_uri, &target_host.to_string()).await?);
                     Ok(())
-
             }
             ForwardPolicy::Direct => {
                 println!("💻 -> {}", &target_host);
-                self.dest_socket = Some(connect_with_retry(&target_host).await?);
+                self.dest_socket = Some(connect_with_retry(&target_host.to_string()).await?);
                 Ok(())
+            },
+            ForwardPolicy::PAC => {
+                todo!()
             }
         }
     }
@@ -199,5 +198,5 @@ impl ProxyTunnel {
 #[derive(Clone, PartialEq)]
 enum ConnectionState {
     Initializing,
-    Forwarding(String),
+    Forwarding(NetworkTarget),
 }

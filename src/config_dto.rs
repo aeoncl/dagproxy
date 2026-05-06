@@ -59,7 +59,6 @@ impl TryInto<SubnetConfig> for SubnetConfigDto {
 
         let ip_range = {
             match self.ip_range.as_str() {
-                "*" => IpRange::Wildcard,
                 subnet => IpRange::Subnet(Netv4Addr::from_str(subnet).map_err(|e| anyhow::anyhow!("Invalid subnet: {}", e))?)
             }
         };

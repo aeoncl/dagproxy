@@ -1,4 +1,6 @@
+use std::fmt::{Display, Formatter};
 use std::io;
+use std::str::FromStr;
 use std::time::Duration;
 use anyhow::anyhow;
 use backon::ExponentialBuilder;
@@ -15,12 +17,12 @@ pub(crate) enum RequestType {
     Other,
 }
 
-pub(crate) fn parse_host_from_request(data: &[u8]) -> Result<(RequestType, String), anyhow::Error> {
+pub(crate) fn parse_host_from_request(data: &[u8]) -> Result<(RequestType, NetworkTarget), anyhow::Error> {
     if data.starts_with(b"CONNECT ") {
         let connect_body = String::from_utf8_lossy(&data);
         let mut split = connect_body.split_whitespace();
         let host = split.nth(1).unwrap().to_owned();
-        Ok((RequestType::Connect, host))
+        Ok((RequestType::Connect, NetworkTarget::from_str(&host)?))
     } else {
         let mut headers = [httparse::EMPTY_HEADER; 16];
         let mut req = httparse::Request::new(&mut headers);
@@ -52,7 +54,45 @@ pub(crate) fn parse_host_from_request(data: &[u8]) -> Result<(RequestType, Strin
             host = format!("{}:{}", host, default_port)
         };
 
-        Ok((RequestType::Other, host))
+        Ok((RequestType::Other, NetworkTarget::from_str(&host)?))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NetworkTarget {
+    host: String,
+    port: u32,
+}
+
+impl NetworkTarget {
+    pub fn new(host: &str, port: u32) -> Self {
+        Self {
+            host: host.to_string(),
+            port,
+        }
+    }
+
+    pub fn host(&self) -> &str {
+        self.host.as_str()
+    }
+
+    pub fn port(&self) -> u32 {
+        self.port
+    }
+}
+
+impl FromStr for NetworkTarget {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (host, port) = s.split_once(":").ok_or(anyhow::anyhow!("Could not split {{domain:port}} on ':' for : {}", s))?;
+        let port_casted = u32::from_str(port)?;
+        Ok(Self::new(host, port_casted))
+    }
+}
+
+impl Display for NetworkTarget {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
     }
 }
 

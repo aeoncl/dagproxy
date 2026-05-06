@@ -1,5 +1,6 @@
 use std::net::Ipv4Addr;
 use std::ops::Sub;
+use std::str::FromStr;
 use netaddr2::{Mask, Netv4Addr};
 use no_proxy::NoProxyItem;
 
@@ -7,6 +8,7 @@ use no_proxy::NoProxyItem;
 pub enum ForwardPolicy {
     Proxy,
     Direct,
+    PAC,
 }
 
 impl Default for ForwardPolicy {
@@ -25,22 +27,20 @@ pub struct SubnetConfig {
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum IpRange {
-    Subnet(Netv4Addr),
-    Wildcard,
+    Subnet(Netv4Addr)
+}
+
+impl Default for IpRange {
+    fn default() -> Self {
+        IpRange::Subnet(Netv4Addr::from_str("127.0.0.1/32").unwrap())
+    }
 }
 
 impl IpRange {
     pub fn matches(&self, host: &Ipv4Addr) -> bool {
         match self {
             IpRange::Subnet(subnet) => subnet.contains_ipv4(host),
-            IpRange::Wildcard => true,
         }
-    }
-}
-
-impl Default for IpRange {
-    fn default() -> Self {
-        Self::Wildcard
     }
 }
 
@@ -52,6 +52,10 @@ impl SubnetConfig {
             }
         }
         None
+    }
+
+    pub fn applies_to(&self, ip: &Ipv4Addr) -> bool {
+        self.ip_range.matches(ip)
     }
 }
 
@@ -77,7 +81,7 @@ pub struct Config {
 impl Config {
     pub fn get_matching_config(&self, host: &Ipv4Addr) -> Option<SubnetConfig> {
         for subnet in &self.subnets {
-            if subnet.ip_range.matches(host) {
+            if subnet.applies_to(host) {
                 return Some(subnet.clone());
             }
         }
@@ -99,4 +103,158 @@ impl ContainsIpV4 for Netv4Addr {
         let other: Self = Self::from(*ip);
         other.addr().mask(&self.mask()) == self.addr()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+    use std::str::FromStr;
+    use netaddr2::Netv4Addr;
+    use no_proxy::NoProxyItem;
+    use crate::config::{Config, ForwardPolicy, IpRange, SubnetConfig};
+
+    #[test]
+    fn subnet_matches_wildcard_test() {
+        let config = SubnetConfig {
+            ip_range: Default::default(),
+            proxy_host: "".to_string(),
+            proxy_port: 0,
+            rules: vec![
+                (NoProxyItem::Wildcard, ForwardPolicy::Proxy)
+            ],
+        };
+
+        let fp = config.get_forward_policy("any");
+
+        assert_eq!(Some(ForwardPolicy::Proxy), fp);
+    }
+
+    #[test]
+    fn subnet_matches_exact_test() {
+        let config = SubnetConfig {
+            ip_range: Default::default(),
+            proxy_host: "".to_string(),
+            proxy_port: 0,
+            rules: vec![
+                (NoProxyItem::Plain("www.test.com".to_string()), ForwardPolicy::Direct),
+                (NoProxyItem::Wildcard, ForwardPolicy::Proxy)
+            ],
+        };
+
+        let fp_www = config.get_forward_policy("www.test.com");
+        assert_eq!(Some(ForwardPolicy::Direct), fp_www);
+
+        let fp_test = config.get_forward_policy("test.com");
+        assert_eq!(Some(ForwardPolicy::Proxy), fp_test);
+
+        let fp = config.get_forward_policy("any");
+        assert_eq!(Some(ForwardPolicy::Proxy), fp);
+    }
+
+    #[test]
+    fn subnet_matches_none_test() {
+        let config = SubnetConfig {
+            ip_range: Default::default(),
+            proxy_host: "".to_string(),
+            proxy_port: 0,
+            rules: vec![
+                (NoProxyItem::Plain("www.test.com".to_string()), ForwardPolicy::Direct),
+            ],
+        };
+
+        let fp_www = config.get_forward_policy("www.test.com");
+        assert_eq!(Some(ForwardPolicy::Direct), fp_www);
+
+        let fp_test = config.get_forward_policy("test.com");
+        assert_eq!(None, fp_test);
+    }
+
+    #[test]
+    fn subnet_matches_dotted_test() {
+        let config = SubnetConfig {
+            ip_range: Default::default(),
+            proxy_host: "".to_string(),
+            proxy_port: 0,
+            rules: vec![
+                (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
+                (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+            ],
+        };
+
+        let fp_www = config.get_forward_policy("www.test.com");
+        assert_eq!(Some(ForwardPolicy::Direct), fp_www);
+
+        let fp_www = config.get_forward_policy("www.test.be");
+        assert_eq!(Some(ForwardPolicy::Direct), fp_www);
+
+        let fp_test = config.get_forward_policy("test.com");
+        assert_eq!(Some(ForwardPolicy::PAC), fp_test);
+    }
+
+    #[test]
+    fn subnet_applies_to_ip_in_range() {
+        let config = SubnetConfig {
+            ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
+            proxy_host: "".to_string(),
+            proxy_port: 0,
+            rules: vec![
+                (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
+                (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+            ],
+        };
+
+        let applies = config.applies_to(&Ipv4Addr::from_str("192.168.1.2").unwrap());
+        assert_eq!(true, applies);
+    }
+
+    #[test]
+    fn subnet_doesnt_apply_to_ip_not_in_range() {
+        let config = SubnetConfig {
+            ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
+            proxy_host: "".to_string(),
+            proxy_port: 0,
+            rules: vec![
+                (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
+                (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+            ],
+        };
+
+        let applies = config.applies_to(&Ipv4Addr::from_str("192.168.2.1").unwrap());
+        assert_eq!(false, applies);
+    }
+
+    #[test]
+    fn config_evaluates_subnets_in_order() {
+        let config = Config {
+            port: 1234,
+            subnets: vec![
+                SubnetConfig {
+                    ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.2.1/24").unwrap()),
+                    proxy_host: "wildcard_proxy".to_string(),
+                    proxy_port: 0,
+                    rules: vec![
+                        (NoProxyItem::WithDot(".blablabla.".to_string(), true, true), ForwardPolicy::Direct),
+                        (NoProxyItem::Plain("blablabla.com".to_string()), ForwardPolicy::Proxy),
+                    ],
+                },
+                SubnetConfig {
+                    ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
+                    proxy_host: "non_wildcard_proxy".to_string(),
+                    proxy_port: 0,
+                    rules: vec![
+                        (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
+                        (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+                    ],
+                },
+
+            ],
+        };
+
+
+        let config = config.get_matching_config(&Ipv4Addr::from_str("192.168.1.1").unwrap());
+        assert!(config.is_some());
+        let config = config.unwrap();
+        assert_eq!(config.proxy_host, "wildcard_proxy");
+    }
+
 }
