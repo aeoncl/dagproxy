@@ -33,7 +33,12 @@ pub mod kerberos {
 
         let proxy_spn = format!("HTTP/{}", proxy_without_port);
 
-        let (_, token) = ClientCtx::new(InitiateFlags::empty(), None, &proxy_spn, None)?;
+        #[cfg(target_os = "windows")]
+        let flags = InitiateFlags::NEGOTIATE_TOKEN;
+        #[cfg(not(target_os = "windows"))]
+        let flags = InitiateFlags::empty();
+
+        let (_, token) = ClientCtx::new(flags, None, &proxy_spn, None)?;
         let token = Bytes::copy_from_slice(&*token);
         let token_b64 = general_purpose::STANDARD.encode(token);
 
