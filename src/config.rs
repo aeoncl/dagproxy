@@ -1,60 +1,102 @@
-use crate::NoProxyValue;
-use netaddr2::Netv4Addr;
-use std::str::FromStr;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SubNetKey {
-    Default,
-    Subnet(Netv4Addr)
-}
+use std::net::Ipv4Addr;
+use std::ops::Sub;
+use netaddr2::{Mask, Netv4Addr};
+use no_proxy::NoProxyItem;
 
 #[derive(Clone, PartialEq, Debug)]
-pub enum ProxyConfig {
+pub enum ForwardPolicy {
+    Proxy,
     Direct,
-    Proxy { host: String, port: u32, no_proxy: Vec<NoProxyValue> }
 }
-impl Default for ProxyConfig {
+
+impl Default for ForwardPolicy {
     fn default() -> Self {
-        ProxyConfig::Direct
+        Self::Direct
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
+pub struct SubnetConfig {
+    pub ip_range: IpRange,
+    pub proxy_host: String,
+    pub proxy_port: u32,
+    pub rules: Vec<(NoProxyItem, ForwardPolicy)>
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum IpRange {
+    Subnet(Netv4Addr),
+    Wildcard,
+}
+
+impl IpRange {
+    pub fn matches(&self, host: &Ipv4Addr) -> bool {
+        match self {
+            IpRange::Subnet(subnet) => subnet.contains_ipv4(host),
+            IpRange::Wildcard => true,
+        }
+    }
+}
+
+impl Default for IpRange {
+    fn default() -> Self {
+        Self::Wildcard
+    }
+}
+
+impl SubnetConfig {
+    pub fn get_forward_policy(&self, host: &str) -> Option<ForwardPolicy> {
+        for (no_proxy_item, forward_policy) in &self.rules {
+            if no_proxy_item.matches(host) {
+                return Some(forward_policy.clone());
+            }
+        }
+        None
+    }
+}
+
+impl Default for SubnetConfig {
+    fn default() -> Self {
+        Self {
+            ip_range: Default::default(),
+            proxy_host: String::new(),
+            proxy_port: 0,
+            rules: vec![
+                (NoProxyItem::Wildcard, Default::default())
+            ],
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Config {
     pub port: u32,
-    pub subnets: Vec<(SubNetKey, ProxyConfig)>,
+    pub subnets: Vec<SubnetConfig>,
 }
+
+impl Config {
+    pub fn get_matching_config(&self, host: &Ipv4Addr) -> Option<SubnetConfig> {
+        for subnet in &self.subnets {
+            if subnet.ip_range.matches(host) {
+                return Some(subnet.clone());
+            }
+        }
+        None
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
-        let mut subnets = Vec::new();
+        todo!()
+    }
+}
 
-        subnets.push(
-            (SubNetKey::Subnet(Netv4Addr::from_str("10.80.0.0/16").unwrap()),
-            ProxyConfig::Proxy {
-                host: "proxygate.onemrva.priv".to_owned(),
-                port: 8888,
-                no_proxy: "localhost,rvaonem.priv,rvaonem.fgov.be,169.254.169.254,cloud.rvadc.be,onemrva.priv,teams.microsoft.com,google.com".split(",").map(|host| {
-                    NoProxyValue::from_str(host).expect(format!("Invalid no proxy host: {}", &host).as_str())
-                }).collect::<Vec<_>>()
-            })
-        );
-
-        subnets.push(
-            (SubNetKey::Subnet(Netv4Addr::from_str("10.130.0.0/16").unwrap()),
-            ProxyConfig::Proxy {
-                host: "proxygate.onemrva.priv".to_owned(),
-                port: 8888,
-                no_proxy: "localhost,rvaonem.priv,rvaonem.fgov.be,169.254.169.254,cloud.rvadc.be,onemrva.priv".split(",").map(|host| {
-                    NoProxyValue::from_str(host).expect(format!("Invalid no proxy host: {}", &host).as_str())
-                }).collect::<Vec<_>>()
-            })
-        );
-
-        subnets.push((SubNetKey::Default, ProxyConfig::Direct));
-
-        Self {
-            port: 3333,
-            subnets
-        }
+trait ContainsIpV4 {
+    fn contains_ipv4(&self, ip: &Ipv4Addr) -> bool;
+}
+impl ContainsIpV4 for Netv4Addr {
+    fn contains_ipv4(&self, ip: &Ipv4Addr) -> bool {
+        let other: Self = Self::from(*ip);
+        other.addr().mask(&self.mask()) == self.addr()
     }
 }

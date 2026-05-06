@@ -34,7 +34,7 @@ fn main() {
 
     let config_json = fs::read_to_string(config_file).unwrap();
     let config_dto: ConfigDto = serde_json::from_str(&config_json).unwrap();
-    let config: Config = config_dto.into();
+    let config: Config = config_dto.try_into().unwrap();
 
     let rt = runtime::Builder::new_current_thread()
         .enable_all()
@@ -64,69 +64,4 @@ fn print_header() {
           |___/ |_|                 |__/
     "#;
     println!("{}", HEADER);
-}
-
-#[derive(PartialEq, Clone, Debug)]
-enum NoProxyValue {
-    Host(String),
-    Subnet(Netv4Addr),
-}
-
-impl NoProxyValue {
-    pub fn matches_host(&self, other_host: &str) -> bool {
-        match self {
-            NoProxyValue::Host(host) => other_host.contains(host),
-            NoProxyValue::Subnet(range) => {
-                if let Ok(ip) = IpAddr::from_str(other_host) {
-                    range.contains(&ip)
-                } else {
-                    false
-                }
-            }
-        }
-    }
-}
-impl FromStr for NoProxyValue {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.contains("/") {
-            let test =
-                Netv4Addr::from_str(s).map_err(|e| anyhow::anyhow!("Invalid subnet: {}", e))?;
-            Ok(Self::Subnet(test))
-        } else {
-            Ok(Self::Host(s.to_owned()))
-        }
-    }
-}
-
-impl Display for NoProxyValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NoProxyValue::Host(host) => {
-                write!(f, "{}", &host)
-            }
-            NoProxyValue::Subnet(subnet) => {
-                write!(f, "{}", &subnet.to_string())
-            }
-        }
-    }
-}
-#[cfg(test)]
-mod tests {
-    use crate::NoProxyValue;
-    use std::str::FromStr;
-
-    #[test]
-    fn test_ip_no_proxy_matches() {
-        let no_proxy = NoProxyValue::from_str("127.0.0.0/24").unwrap();
-        assert!(no_proxy.matches_host("127.0.0.2"));
-    }
-
-    #[test]
-    fn test_url_no_proxy_matches() {
-        let no_proxy = NoProxyValue::from_str("google.com").unwrap();
-        assert!(no_proxy.matches_host("blabla.google.com"));
-        assert!(no_proxy.matches_host("google.com"));
-    }
 }

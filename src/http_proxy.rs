@@ -1,4 +1,4 @@
-use crate::config::ProxyConfig;
+use crate::config::{ForwardPolicy, SubnetConfig};
 use crate::http::{
     RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry,
     parse_host_from_request,
@@ -149,7 +149,7 @@ impl ProxyTunnel {
 
     async fn initialize(&mut self, data: &[u8]) -> Result<(), anyhow::Error> {
         let (request_type, target_host) = parse_host_from_request(&data)?;
-        let network_type = self.network_watcher.network_type();
+        let network_type = self.network_watcher.subnet_config();
         self.setup_dest_socket(network_type, &target_host).await?;
         self.state = ConnectionState::Forwarding(target_host);
 
@@ -173,36 +173,24 @@ impl ProxyTunnel {
 
     async fn setup_dest_socket(
         &mut self,
-        updated_type: ProxyConfig,
+        subnet_config: SubnetConfig,
         target_host: &str,
     ) -> Result<(), anyhow::Error> {
-        match updated_type {
-            ProxyConfig::Direct => {
-                println!("💻 -> {}", &target_host);
-                self.dest_socket = Some(connect_with_retry(&target_host).await?);
-                Ok(())
-            }
-            ProxyConfig::Proxy {
-                host,
-                port,
-                no_proxy,
-            } => {
-                let bypass_proxy = no_proxy
-                    .iter()
-                    .any(|no_proxy_host| no_proxy_host.matches_host(&target_host));
 
-                if bypass_proxy {
-                    if self.dest_socket.is_none() {
-                        println!("💻 -> {} [NO_PROXY]", &target_host);
-                        self.dest_socket = Some(connect_with_retry(&target_host).await?);
-                    }
-                    Ok(())
-                } else {
-                    let proxy_uri = &format!("{}:{}", &host, &port);
+        let forward_policy = subnet_config.get_forward_policy(target_host).unwrap_or_default();
+
+        match forward_policy {
+            ForwardPolicy::Proxy => {
+                    let proxy_uri = &format!("{}:{}", &subnet_config.proxy_host, &subnet_config.proxy_port);
                     println!("💻 -> {} -> {}", &proxy_uri, &target_host);
                     self.dest_socket = Some(connect_to_proxy(proxy_uri, &target_host).await?);
                     Ok(())
-                }
+
+            }
+            ForwardPolicy::Direct => {
+                println!("💻 -> {}", &target_host);
+                self.dest_socket = Some(connect_with_retry(&target_host).await?);
+                Ok(())
             }
         }
     }

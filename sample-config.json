@@ -2,27 +2,22 @@
   "port": 3232,
   "subnets": [
     {
-      "Proxy": {
         "ip_range": "10.0.0.0/24",
         "proxy_host": "upstream.proxy",
         "proxy_port": 8080,
-        "no_proxy": [
-          "localhost",
-          "google.com"
-        ]
-      }
+        "rules": {
+          "subdomain.example.com": "DIRECT",
+          "*": "PROXY"
+        }
     },
     {
-      "Proxy": {
         "ip_range": "11.0.0.0/24",
         "proxy_host": "upstream.proxy",
         "proxy_port": 8080,
-        "no_proxy": [
-          "localhost",
-          "google.com"
-        ]
-      }
-    },
-    "Direct"
+        "rules": {
+          "subdomain.example.com": "DIRECT",
+          "*": "PROXY"
+        }
+    }
   ]
 }
