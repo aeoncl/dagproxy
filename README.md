@@ -59,7 +59,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/user/.local/bin/dagproxy /home/user/.config/dagproxy/config.json
+ExecStart=/home/user/.local/bin/dagproxy -c /home/user/.config/dagproxy/config.json
 Restart=on-failure
 RestartSec=5
 
