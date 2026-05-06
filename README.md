@@ -20,34 +20,27 @@ Dag proxy will detect the ip range you are in and use the appropriate subnet con
 
 ```json
 {
-    "port": 3232,
-    "subnets": [
-        {
-            "Proxy": {
-                "ip_range": "10.69.0.0/16",
-                "proxy_host": "corporateproxy.onemrva.priv",
-                "proxy_port": 1234,
-                "no_proxy": [
-                    "localhost",
-                    "169.254.169.254",
-                    "privatedomain.priv"
-                ]
-            }
-        },
-        {
-            "Proxy": {
-                "ip_range": "10.130.0.0/16",
-                "proxy_host": "corporateproxy.onemrva.priv",
-                "proxy_port": 1234,
-                "no_proxy": [
-                    "localhost",
-                    "169.254.169.254",
-                    "otherprivatedomain.priv"
-                ]
-            }
-        },
-        "Direct"
-    ]
+  "port": 3232,
+  "subnets": [
+    {
+      "ip_range": "10.0.0.0/24",
+      "proxy_host": "upstream.proxy",
+      "proxy_port": 8080,
+      "rules": {
+        "subdomain.example.com": "DIRECT",
+        "*": "PROXY"
+      }
+    },
+    {
+      "ip_range": "11.0.0.0/24",
+      "proxy_host": "upstream.proxy",
+      "proxy_port": 8080,
+      "rules": {
+        "subdomain.example.com": "DIRECT",
+        "*": "PROXY"
+      }
+    }
+  ]
 }
 
 ```
