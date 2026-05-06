@@ -1,5 +1,8 @@
 use crate::config::{ForwardPolicy, SubnetConfig};
-use crate::http::{RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry, parse_host_from_request, NetworkTarget};
+use crate::http::{
+    NetworkTarget, RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry,
+    parse_host_from_request,
+};
 use crate::network_watcher::NetworkWatchTransport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -9,12 +12,8 @@ pub struct HttpProxy {
 }
 
 impl HttpProxy {
-    pub(crate) fn new(
-        network_watcher: NetworkWatchTransport,
-    ) -> Self {
-        Self {
-            network_watcher,
-        }
+    pub fn new(network_watcher: NetworkWatchTransport) -> Self {
+        Self { network_watcher }
     }
 
     pub async fn start(&mut self, host: String, port: u32) -> Result<(), anyhow::Error> {
@@ -28,10 +27,7 @@ impl HttpProxy {
                     let network_watcher = self.network_watcher.clone();
 
                     let _ = tokio::spawn(async move {
-                        let mut proxy_tunnel = ProxyTunnel::new(
-                            source_socket,
-                            network_watcher,
-                        );
+                        let mut proxy_tunnel = ProxyTunnel::new(source_socket, network_watcher);
                         proxy_tunnel.start().await;
                     });
                 }
@@ -54,10 +50,7 @@ struct ProxyTunnel {
 }
 
 impl ProxyTunnel {
-    pub fn new(
-        source_socket: TcpStream,
-        network_watcher: NetworkWatchTransport,
-    ) -> Self {
+    pub fn new(source_socket: TcpStream, network_watcher: NetworkWatchTransport) -> Self {
         Self {
             source_socket,
             network_watcher,
@@ -173,21 +166,26 @@ impl ProxyTunnel {
         subnet_config: SubnetConfig,
         target_host: &NetworkTarget,
     ) -> Result<(), anyhow::Error> {
-
-        let forward_policy = subnet_config.get_forward_policy(target_host.host()).unwrap_or_default();
+        let forward_policy = subnet_config
+            .get_forward_policy(target_host.host())
+            .unwrap_or_default();
 
         match forward_policy {
             ForwardPolicy::Proxy => {
-                    let proxy_uri = &format!("{}:{}", &subnet_config.proxy_host, &subnet_config.proxy_port);
-                    println!("💻 -> {} -> {}", &proxy_uri, &target_host);
-                    self.dest_socket = Some(connect_to_proxy(proxy_uri, &target_host.to_string()).await?);
-                    Ok(())
+                let proxy_uri = &format!(
+                    "{}:{}",
+                    &subnet_config.proxy_host, &subnet_config.proxy_port
+                );
+                println!("💻 -> {} -> {}", &proxy_uri, &target_host);
+                self.dest_socket =
+                    Some(connect_to_proxy(proxy_uri, &target_host.to_string()).await?);
+                Ok(())
             }
             ForwardPolicy::Direct => {
                 println!("💻 -> {}", &target_host);
                 self.dest_socket = Some(connect_with_retry(&target_host.to_string()).await?);
                 Ok(())
-            },
+            }
             ForwardPolicy::PAC => {
                 todo!()
             }

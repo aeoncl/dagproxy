@@ -1,8 +1,7 @@
-use std::net::Ipv4Addr;
-use std::ops::Sub;
-use std::str::FromStr;
 use netaddr2::{Mask, Netv4Addr};
 use no_proxy::NoProxyItem;
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ForwardPolicy {
@@ -22,12 +21,12 @@ pub struct SubnetConfig {
     pub ip_range: IpRange,
     pub proxy_host: String,
     pub proxy_port: u32,
-    pub rules: Vec<(NoProxyItem, ForwardPolicy)>
+    pub rules: Vec<(NoProxyItem, ForwardPolicy)>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum IpRange {
-    Subnet(Netv4Addr)
+    Subnet(Netv4Addr),
 }
 
 impl Default for IpRange {
@@ -65,9 +64,7 @@ impl Default for SubnetConfig {
             ip_range: Default::default(),
             proxy_host: String::new(),
             proxy_port: 0,
-            rules: vec![
-                (NoProxyItem::Wildcard, Default::default())
-            ],
+            rules: vec![(NoProxyItem::Wildcard, Default::default())],
         }
     }
 }
@@ -107,11 +104,11 @@ impl ContainsIpV4 for Netv4Addr {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
-    use std::str::FromStr;
+    use crate::config::{Config, ForwardPolicy, IpRange, SubnetConfig};
     use netaddr2::Netv4Addr;
     use no_proxy::NoProxyItem;
-    use crate::config::{Config, ForwardPolicy, IpRange, SubnetConfig};
+    use std::net::Ipv4Addr;
+    use std::str::FromStr;
 
     #[test]
     fn subnet_matches_wildcard_test() {
@@ -119,9 +116,7 @@ mod tests {
             ip_range: Default::default(),
             proxy_host: "".to_string(),
             proxy_port: 0,
-            rules: vec![
-                (NoProxyItem::Wildcard, ForwardPolicy::Proxy)
-            ],
+            rules: vec![(NoProxyItem::Wildcard, ForwardPolicy::Proxy)],
         };
 
         let fp = config.get_forward_policy("any");
@@ -136,8 +131,11 @@ mod tests {
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
-                (NoProxyItem::Plain("www.test.com".to_string()), ForwardPolicy::Direct),
-                (NoProxyItem::Wildcard, ForwardPolicy::Proxy)
+                (
+                    NoProxyItem::Plain("www.test.com".to_string()),
+                    ForwardPolicy::Direct,
+                ),
+                (NoProxyItem::Wildcard, ForwardPolicy::Proxy),
             ],
         };
 
@@ -157,9 +155,10 @@ mod tests {
             ip_range: Default::default(),
             proxy_host: "".to_string(),
             proxy_port: 0,
-            rules: vec![
-                (NoProxyItem::Plain("www.test.com".to_string()), ForwardPolicy::Direct),
-            ],
+            rules: vec![(
+                NoProxyItem::Plain("www.test.com".to_string()),
+                ForwardPolicy::Direct,
+            )],
         };
 
         let fp_www = config.get_forward_policy("www.test.com");
@@ -176,8 +175,14 @@ mod tests {
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
-                (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
-                (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+                (
+                    NoProxyItem::WithDot(".test.".to_string(), true, true),
+                    ForwardPolicy::Direct,
+                ),
+                (
+                    NoProxyItem::Plain("test.com".to_string()),
+                    ForwardPolicy::PAC,
+                ),
             ],
         };
 
@@ -198,8 +203,14 @@ mod tests {
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
-                (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
-                (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+                (
+                    NoProxyItem::WithDot(".test.".to_string(), true, true),
+                    ForwardPolicy::Direct,
+                ),
+                (
+                    NoProxyItem::Plain("test.com".to_string()),
+                    ForwardPolicy::PAC,
+                ),
             ],
         };
 
@@ -214,8 +225,14 @@ mod tests {
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
-                (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
-                (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+                (
+                    NoProxyItem::WithDot(".test.".to_string(), true, true),
+                    ForwardPolicy::Direct,
+                ),
+                (
+                    NoProxyItem::Plain("test.com".to_string()),
+                    ForwardPolicy::PAC,
+                ),
             ],
         };
 
@@ -233,8 +250,14 @@ mod tests {
                     proxy_host: "wildcard_proxy".to_string(),
                     proxy_port: 0,
                     rules: vec![
-                        (NoProxyItem::WithDot(".blablabla.".to_string(), true, true), ForwardPolicy::Direct),
-                        (NoProxyItem::Plain("blablabla.com".to_string()), ForwardPolicy::Proxy),
+                        (
+                            NoProxyItem::WithDot(".blablabla.".to_string(), true, true),
+                            ForwardPolicy::Direct,
+                        ),
+                        (
+                            NoProxyItem::Plain("blablabla.com".to_string()),
+                            ForwardPolicy::Proxy,
+                        ),
                     ],
                 },
                 SubnetConfig {
@@ -242,19 +265,22 @@ mod tests {
                     proxy_host: "non_wildcard_proxy".to_string(),
                     proxy_port: 0,
                     rules: vec![
-                        (NoProxyItem::WithDot(".test.".to_string(), true, true), ForwardPolicy::Direct),
-                        (NoProxyItem::Plain("test.com".to_string()), ForwardPolicy::PAC),
+                        (
+                            NoProxyItem::WithDot(".test.".to_string(), true, true),
+                            ForwardPolicy::Direct,
+                        ),
+                        (
+                            NoProxyItem::Plain("test.com".to_string()),
+                            ForwardPolicy::PAC,
+                        ),
                     ],
                 },
-
             ],
         };
-
 
         let config = config.get_matching_config(&Ipv4Addr::from_str("192.168.1.1").unwrap());
         assert!(config.is_some());
         let config = config.unwrap();
         assert_eq!(config.proxy_host, "non_wildcard_proxy");
     }
-
 }

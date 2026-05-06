@@ -1,18 +1,7 @@
-mod cert;
-mod config;
-mod config_dto;
-mod http;
-pub mod http_proxy;
-mod kerberos;
-mod network_watcher;
-
-use crate::config::Config;
-use crate::config_dto::ConfigDto;
-use http_proxy::HttpProxy;
-use netaddr2::{Contains, Netv4Addr};
-use std::fmt::{Display, Formatter};
-use std::net::IpAddr;
-use std::str::FromStr;
+use dagproxy::config::Config;
+use dagproxy::config_dto::ConfigDto;
+use dagproxy::http_proxy::HttpProxy;
+use dagproxy::network_watcher;
 use std::{env, fs};
 use tokio::runtime;
 
@@ -54,14 +43,12 @@ fn main() {
 
 fn print_header() {
     const HEADER: &str = r#"
-  (
-  )\ )   ) (  (        (          ) (
- (()/(( /( )\))( `  )  )(   (  ( /( )\ )
-  ((_))(_)|(_))\ /(/( (()\  )\ )\()|()/(
-  _| ((_)_ (()(_|(_)_\ ((_)((_|(_)\ )(_))
-/ _` / _` / _` || '_ \) '_/ _ \ \ /| || |
-\__,_\__,_\__, || .__/|_| \___/_\_\ \_, |
-          |___/ |_|                 |__/
+    ___              ___
+   /   \__ _  __ _  / _ \_ __ _____  ___   _
+  / /\ / _` |/ _` |/ /_)/ '__/ _ \ \/ / | | |
+ / /_// (_| | (_| / ___/| | | (_) >  <| |_| |
+/___,' \__,_|\__, \/    |_|  \___/_/\_\\__, |
+             |___/                     |___/
     "#;
     println!("{}", HEADER);
 }

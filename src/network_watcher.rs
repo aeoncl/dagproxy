@@ -1,14 +1,24 @@
 use crate::config::{Config, SubnetConfig};
 use netwatcher::WatchHandle;
 use std::sync::{Arc, Mutex};
-use tokio::sync::watch::Receiver;
+use tokio::sync::watch::{Receiver, Sender};
 
 #[derive(Clone)]
-pub(crate) struct NetworkWatchTransport {
+pub struct NetworkWatchTransport {
     notification_receiver: Receiver<SubnetConfig>,
 }
 
 impl NetworkWatchTransport {
+    pub fn new_for_testing(subnet_config: SubnetConfig) -> (Self, Sender<SubnetConfig>) {
+        let (tx, rx) = tokio::sync::watch::channel(subnet_config);
+        (
+            Self {
+                notification_receiver: rx,
+            },
+            tx,
+        )
+    }
+
     pub fn subnet_config(&self) -> SubnetConfig {
         self.notification_receiver
             .clone()
@@ -21,7 +31,7 @@ impl NetworkWatchTransport {
     }
 }
 
-pub(crate) fn watch_networks(config: Config) -> (WatchHandle, NetworkWatchTransport) {
+pub fn watch_networks(config: Config) -> (WatchHandle, NetworkWatchTransport) {
     let current_subnet_config: Arc<Mutex<SubnetConfig>> = Arc::new(Mutex::new(Default::default()));
     let (notification_sender, notification_receiver) =
         tokio::sync::watch::channel::<SubnetConfig>(Default::default());

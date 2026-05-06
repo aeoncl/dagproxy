@@ -1,8 +1,8 @@
 use crate::config::{Config, ForwardPolicy, IpRange, SubnetConfig};
-use netaddr2::Netv4Addr;
-use std::str::FromStr;
 use indexmap::IndexMap;
+use netaddr2::Netv4Addr;
 use no_proxy::NoProxyItem;
+use std::str::FromStr;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ConfigDto {
@@ -46,7 +46,6 @@ impl TryInto<SubnetConfig> for SubnetConfigDto {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<SubnetConfig, Self::Error> {
-
         let rules = self
             .rules
             .into_iter()
@@ -59,7 +58,10 @@ impl TryInto<SubnetConfig> for SubnetConfigDto {
 
         let ip_range = {
             match self.ip_range.as_str() {
-                subnet => IpRange::Subnet(Netv4Addr::from_str(subnet).map_err(|e| anyhow::anyhow!("Invalid subnet: {}", e))?)
+                subnet => IpRange::Subnet(
+                    Netv4Addr::from_str(subnet)
+                        .map_err(|e| anyhow::anyhow!("Invalid subnet: {}", e))?,
+                ),
             }
         };
 
@@ -75,15 +77,14 @@ impl TryInto<SubnetConfig> for SubnetConfigDto {
 impl Into<ForwardPolicy> for ForwardPolicyDto {
     fn into(self) -> ForwardPolicy {
         match self {
-            ForwardPolicyDto::Proxy => { ForwardPolicy::Proxy }
-            ForwardPolicyDto::Direct => { ForwardPolicy::Direct }
+            ForwardPolicyDto::Proxy => ForwardPolicy::Proxy,
+            ForwardPolicyDto::Direct => ForwardPolicy::Direct,
         }
     }
 }
 
 #[cfg(test)]
-mod tests{
-    use std::str::FromStr;
+mod tests {
     use crate::config_dto::ConfigDto;
 
     #[test]
