@@ -1,6 +1,7 @@
 use dagproxy::config::{ForwardPolicy, IpRange, SubnetConfig};
 use dagproxy::http_proxy::HttpProxy;
 use dagproxy::network_watcher::NetworkWatchTransport;
+use dagproxy::pac;
 use netaddr2::Netv4Addr;
 use no_proxy::NoProxyItem;
 use std::str::FromStr;
@@ -161,7 +162,9 @@ async fn start_dagproxy(subnet_config: SubnetConfig) -> (u16, Sender<SubnetConfi
     drop(listener);
 
     let (transport, sender) = NetworkWatchTransport::new_for_testing(subnet_config);
-    let mut proxy = HttpProxy::new(transport);
+    let pac_update_recv = pac::watch_pac(transport.clone());
+
+    let mut proxy = HttpProxy::new(transport, pac_update_recv);
     tokio::spawn(async move {
         proxy
             .start("127.0.0.1".to_owned(), port as u32)
@@ -181,6 +184,7 @@ fn proxy_all_config(proxy_port: u16) -> SubnetConfig {
         ip_range: IpRange::Subnet(Netv4Addr::from_str("127.0.0.1/32").unwrap()),
         proxy_host: "127.0.0.1".to_string(),
         proxy_port: proxy_port as u32,
+        pac_url: None,
         rules: vec![(NoProxyItem::Wildcard, ForwardPolicy::Proxy)],
     }
 }
@@ -191,6 +195,7 @@ fn direct_all_config() -> SubnetConfig {
         ip_range: IpRange::Subnet(Netv4Addr::from_str("127.0.0.1/32").unwrap()),
         proxy_host: String::new(),
         proxy_port: 0,
+        pac_url: None,
         rules: vec![(NoProxyItem::Wildcard, ForwardPolicy::Direct)],
     }
 }
@@ -208,6 +213,7 @@ fn mixed_rules_config(proxy_port: u16, direct_hosts: Vec<&str>) -> SubnetConfig 
         ip_range: IpRange::Subnet(Netv4Addr::from_str("127.0.0.1/32").unwrap()),
         proxy_host: "127.0.0.1".to_string(),
         proxy_port: proxy_port as u32,
+        pac_url: None,
         rules,
     }
 }

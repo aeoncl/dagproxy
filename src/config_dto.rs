@@ -15,6 +15,7 @@ pub struct SubnetConfigDto {
     pub ip_range: String,
     pub proxy_host: String,
     pub proxy_port: u32,
+    pub pac_url: Option<String>,
     pub rules: IndexMap<String, ForwardPolicyDto>,
 }
 
@@ -69,6 +70,7 @@ impl TryInto<SubnetConfig> for SubnetConfigDto {
             ip_range,
             proxy_host: self.proxy_host,
             proxy_port: self.proxy_port,
+            pac_url: self.pac_url,
             rules,
         })
     }

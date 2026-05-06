@@ -4,41 +4,66 @@ use crate::http::{
     parse_host_from_request,
 };
 use crate::network_watcher::NetworkWatchTransport;
+use crate::pac::PacMatcher;
+use anyhow::anyhow;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::watch::Receiver;
 
 pub struct HttpProxy {
     network_watcher: NetworkWatchTransport,
+    pac_update_recv: Receiver<Option<PacMatcher>>,
 }
 
 impl HttpProxy {
-    pub fn new(network_watcher: NetworkWatchTransport) -> Self {
-        Self { network_watcher }
+    pub fn new(
+        network_watcher: NetworkWatchTransport,
+        pac_update_recv: Receiver<Option<PacMatcher>>,
+    ) -> Self {
+        Self {
+            network_watcher,
+            pac_update_recv,
+        }
     }
 
     pub async fn start(&mut self, host: String, port: u32) -> Result<(), anyhow::Error> {
         let listener = TcpListener::bind(format!("{}:{}", &host, &port)).await?;
-
+        let mut pac_matcher = self.pac_update_recv.borrow().clone();
         println!("👂 HTTP Proxy listening on {}:{}", &host, &port);
 
         loop {
-            match listener.accept().await {
-                Ok((source_socket, _)) => {
-                    let network_watcher = self.network_watcher.clone();
+            tokio::select! {
+               accepted = listener.accept() => {
+                   match accepted {
+                       Ok((source_socket, _)) => {
+                           let network_watcher = self.network_watcher.clone();
 
-                    let _ = tokio::spawn(async move {
-                        let mut proxy_tunnel = ProxyTunnel::new(source_socket, network_watcher);
-                        proxy_tunnel.start().await;
-                    });
-                }
-                Err(err) => {
-                    eprintln!(
-                        "An error has occurred accepting incoming connection: {}",
-                        err
-                    );
-                }
+                           let pac_matcher_clone = pac_matcher.clone();
+                           let _ = tokio::spawn(async move {
+                               let mut proxy_tunnel = ProxyTunnel::new(source_socket, network_watcher, pac_matcher_clone);
+                               proxy_tunnel.start().await;
+                           });
+                       }
+                       Err(err) => {
+                           eprintln!(
+                               "An error has occurred accepting incoming connection: {}",
+                               err
+                           );
+                       }
+                   }
+               },
+               pac_update = self.pac_update_recv.changed() => {
+                   if let Err(e) = pac_update {
+                       eprintln!("Error receiving PAC updates: {}", e);
+                       break;
+                   }
+
+                   let new_pac_matcher = self.pac_update_recv.borrow_and_update().clone();
+                   pac_matcher = new_pac_matcher;
+               }
             }
         }
+        Ok(())
     }
 }
 
@@ -47,15 +72,21 @@ struct ProxyTunnel {
     network_watcher: NetworkWatchTransport,
     dest_socket: Option<TcpStream>,
     state: ConnectionState,
+    pac_matcher: Option<PacMatcher>,
 }
 
 impl ProxyTunnel {
-    pub fn new(source_socket: TcpStream, network_watcher: NetworkWatchTransport) -> Self {
+    pub fn new(
+        source_socket: TcpStream,
+        network_watcher: NetworkWatchTransport,
+        pac_matcher: Option<PacMatcher>,
+    ) -> Self {
         Self {
             source_socket,
             network_watcher,
             dest_socket: None,
             state: ConnectionState::Initializing,
+            pac_matcher,
         }
     }
 
@@ -170,7 +201,20 @@ impl ProxyTunnel {
             .get_forward_policy(target_host.host())
             .unwrap_or_default();
 
-        match forward_policy {
+        let effective_policy = match forward_policy {
+            ForwardPolicy::PAC => match self.pac_matcher.as_ref() {
+                Some(matcher) => matcher.resolve_forward_policy(target_host)?,
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "Could not resolve PAC policy for: {:?} because PAC file was not resolved",
+                        &target_host
+                    ));
+                }
+            },
+            other => other,
+        };
+
+        match effective_policy {
             ForwardPolicy::Proxy => {
                 let proxy = NetworkTarget::new(&subnet_config.proxy_host, subnet_config.proxy_port);
                 println!("💻 -> {} -> {}", &proxy, &target_host);
@@ -182,9 +226,7 @@ impl ProxyTunnel {
                 self.dest_socket = Some(connect_with_retry(target_host).await?);
                 Ok(())
             }
-            ForwardPolicy::PAC => {
-                todo!()
-            }
+            ForwardPolicy::PAC => Err(anyhow!("Should never happen")),
         }
     }
 }

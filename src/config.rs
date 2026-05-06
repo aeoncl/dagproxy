@@ -21,6 +21,7 @@ pub struct SubnetConfig {
     pub ip_range: IpRange,
     pub proxy_host: String,
     pub proxy_port: u32,
+    pub pac_url: Option<String>,
     pub rules: Vec<(NoProxyItem, ForwardPolicy)>,
 }
 
@@ -64,6 +65,7 @@ impl Default for SubnetConfig {
             ip_range: Default::default(),
             proxy_host: String::new(),
             proxy_port: 0,
+            pac_url: None,
             rules: vec![(NoProxyItem::Wildcard, Default::default())],
         }
     }
@@ -116,6 +118,7 @@ mod tests {
             ip_range: Default::default(),
             proxy_host: "".to_string(),
             proxy_port: 0,
+            pac_url: None,
             rules: vec![(NoProxyItem::Wildcard, ForwardPolicy::Proxy)],
         };
 
@@ -130,6 +133,7 @@ mod tests {
             ip_range: Default::default(),
             proxy_host: "".to_string(),
             proxy_port: 0,
+            pac_url: None,
             rules: vec![
                 (
                     NoProxyItem::Plain("www.test.com".to_string()),
@@ -155,6 +159,7 @@ mod tests {
             ip_range: Default::default(),
             proxy_host: "".to_string(),
             proxy_port: 0,
+            pac_url: None,
             rules: vec![(
                 NoProxyItem::Plain("www.test.com".to_string()),
                 ForwardPolicy::Direct,
@@ -174,6 +179,7 @@ mod tests {
             ip_range: Default::default(),
             proxy_host: "".to_string(),
             proxy_port: 0,
+            pac_url: None,
             rules: vec![
                 (
                     NoProxyItem::WithDot(".test.".to_string(), true, true),
@@ -202,6 +208,7 @@ mod tests {
             ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
             proxy_host: "".to_string(),
             proxy_port: 0,
+            pac_url: None,
             rules: vec![
                 (
                     NoProxyItem::WithDot(".test.".to_string(), true, true),
@@ -224,6 +231,7 @@ mod tests {
             ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
             proxy_host: "".to_string(),
             proxy_port: 0,
+            pac_url: None,
             rules: vec![
                 (
                     NoProxyItem::WithDot(".test.".to_string(), true, true),
@@ -259,6 +267,7 @@ mod tests {
                             ForwardPolicy::Proxy,
                         ),
                     ],
+                    pac_url: None,
                 },
                 SubnetConfig {
                     ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
@@ -274,6 +283,7 @@ mod tests {
                             ForwardPolicy::PAC,
                         ),
                     ],
+                    pac_url: None,
                 },
             ],
         };

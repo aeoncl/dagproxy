@@ -1,7 +1,7 @@
-use dagproxy::config::Config;
 use dagproxy::config_dto::ConfigDto;
 use dagproxy::http_proxy::HttpProxy;
 use dagproxy::network_watcher;
+use dagproxy::{config::Config, pac};
 use std::{env, fs};
 use tokio::runtime;
 
@@ -32,7 +32,8 @@ fn main() {
 
     rt.block_on(async move {
         let (_drop_handle, transport) = network_watcher::watch_networks(config.clone());
-        let mut http_proxy = HttpProxy::new(transport);
+        let pac_update_recv = pac::watch_pac(transport.clone());
+        let mut http_proxy = HttpProxy::new(transport, pac_update_recv);
 
         http_proxy
             .start("127.0.0.1".to_owned(), config.port)
