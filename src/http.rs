@@ -85,7 +85,7 @@ impl NetworkTarget {
 impl FromStr for NetworkTarget {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (host, port) = s.split_once(":").ok_or(anyhow::anyhow!(
+        let (host, port) = s.rsplit_once(":").ok_or(anyhow::anyhow!(
             "Could not split {{domain:port}} on ':' for : {}",
             s
         ))?;
