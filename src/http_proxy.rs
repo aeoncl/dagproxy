@@ -75,10 +75,11 @@ impl ProxyTunnel {
 
                     if let ConnectionState::Forwarding(target_host) = self.state.clone() {
                     let network_type = network_update_receiver.borrow_and_update().clone();
-                        if let Err(e) = self.setup_dest_socket(network_type, &target_host).await {
+                    break;
+                        /*if let Err(e) = self.setup_dest_socket(network_type, &target_host).await {
                             eprintln!("Error switching connection: {}", e);
                             break;
-                        }
+                        }*/
                     }
                 },
                 from_destination = async { self.dest_socket.as_mut().expect("to be here").read(&mut dest_read_buffer).await }, if self.dest_socket.is_some() => {
