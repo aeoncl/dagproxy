@@ -43,6 +43,7 @@ impl HttpProxy {
 }
 
 struct ProxyTunnel {
+    id: u32,
     source_socket: TcpStream,
     network_watcher: NetworkWatchTransport,
     dest_socket: Option<TcpStream>,
@@ -51,7 +52,9 @@ struct ProxyTunnel {
 
 impl ProxyTunnel {
     pub fn new(source_socket: TcpStream, network_watcher: NetworkWatchTransport) -> Self {
+        let id: u32 = rand::random();
         Self {
+            id,
             source_socket,
             network_watcher,
             dest_socket: None,
@@ -69,22 +72,18 @@ impl ProxyTunnel {
             tokio::select! {
                 network_update = network_update_receiver.changed() => {
                     if let Err(e) = network_update {
-                        eprintln!("Error receiving network updates: {}", e);
+                        eprintln!("💻 ({}) Error receiving network updates: {}", &self.id, e);
                         break;
                     }
 
-                    if let ConnectionState::Forwarding(target_host) = self.state.clone() {
-                    let network_type = network_update_receiver.borrow_and_update().clone();
-                    break;
-                        /*if let Err(e) = self.setup_dest_socket(network_type, &target_host).await {
-                            eprintln!("Error switching connection: {}", e);
-                            break;
-                        }*/
+                    if let ConnectionState::Forwarding(_target_host) = self.state.clone() {
+                        println!("💻 ({}) Closing tunnel", &self.id);
+                        break;
                     }
                 },
                 from_destination = async { self.dest_socket.as_mut().expect("to be here").read(&mut dest_read_buffer).await }, if self.dest_socket.is_some() => {
                     if let Err(err) = from_destination {
-                        eprintln!("Error reading from destination: {}", err);
+                        eprintln!("💻 ({}) Error reading from destination: {}", &self.id, err);
                         break;
                     }
 
@@ -100,7 +99,7 @@ impl ProxyTunnel {
                 },
                 from_source = self.source_socket.read(&mut source_read_buffer) => {
                     if let Err(err) = from_source {
-                        eprintln!("Error reading from source: {}", err);
+                        eprintln!("💻 ({}) Error reading from source: {}", &self.id, err);
                         break;
                     }
 
@@ -112,7 +111,7 @@ impl ProxyTunnel {
 
                     let data = &source_read_buffer[..bytes_read];
                     if let Err(err) = self.on_message_from_source(data).await {
-                        eprintln!("Error processing message from source: {}", err);
+                        eprintln!("💻 ({}) Error processing message from source: {}", &self.id, err);
                         break;
                     }
 
@@ -174,17 +173,17 @@ impl ProxyTunnel {
         match forward_policy {
             ForwardPolicy::Proxy => {
                 let proxy = NetworkTarget::new(&subnet_config.proxy_host, subnet_config.proxy_port);
-                println!("💻 -> {} -> {}", &proxy, &target_host);
+                println!("💻 ({}) -> {} -> {}", &self.id, &proxy, &target_host);
                 self.dest_socket = Some(connect_to_proxy(&proxy, target_host).await?);
                 Ok(())
             }
             ForwardPolicy::Direct => {
-                println!("💻 -> {}", &target_host);
+                println!("💻 ({}) -> {}", &self.id, &target_host);
                 self.dest_socket = Some(connect_with_retry(target_host).await?);
                 Ok(())
             }
             ForwardPolicy::PAC => {
-                todo!()
+                todo!("PAC resolution is not yet supported")
             }
         }
     }
