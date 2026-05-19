@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use netaddr2::{Mask, Netv4Addr};
 use no_proxy::NoProxyItem;
 use std::net::Ipv4Addr;
@@ -16,9 +17,13 @@ impl Default for ForwardPolicy {
     }
 }
 
+// domain.com
+// .domain.com
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct SubnetConfig {
     pub ip_range: IpRange,
+    pub name: String,
     pub proxy_host: String,
     pub proxy_port: u32,
     pub rules: Vec<(NoProxyItem, ForwardPolicy)>,
@@ -27,6 +32,16 @@ pub struct SubnetConfig {
 #[derive(Clone, PartialEq, Debug)]
 pub enum IpRange {
     Subnet(Netv4Addr),
+}
+
+impl Display for IpRange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IpRange::Subnet(subnet) => {
+                write!(f, "{}", subnet.to_string())
+            }
+        }
+    }
 }
 
 impl Default for IpRange {
@@ -62,6 +77,7 @@ impl Default for SubnetConfig {
     fn default() -> Self {
         Self {
             ip_range: Default::default(),
+            name: Default::default(),
             proxy_host: String::new(),
             proxy_port: 0,
             rules: vec![(NoProxyItem::Wildcard, Default::default())],
@@ -114,6 +130,7 @@ mod tests {
     fn subnet_matches_wildcard_test() {
         let config = SubnetConfig {
             ip_range: Default::default(),
+            name: "".to_string(),
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![(NoProxyItem::Wildcard, ForwardPolicy::Proxy)],
@@ -128,6 +145,7 @@ mod tests {
     fn subnet_matches_exact_test() {
         let config = SubnetConfig {
             ip_range: Default::default(),
+            name: Default::default(),
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
@@ -153,6 +171,7 @@ mod tests {
     fn subnet_matches_none_test() {
         let config = SubnetConfig {
             ip_range: Default::default(),
+            name: "".to_string(),
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![(
@@ -172,6 +191,7 @@ mod tests {
     fn subnet_matches_dotted_test() {
         let config = SubnetConfig {
             ip_range: Default::default(),
+            name: "".to_string(),
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
@@ -200,6 +220,7 @@ mod tests {
     fn subnet_applies_to_ip_in_range() {
         let config = SubnetConfig {
             ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
+            name: "".to_string(),
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
@@ -222,6 +243,7 @@ mod tests {
     fn subnet_doesnt_apply_to_ip_not_in_range() {
         let config = SubnetConfig {
             ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
+            name: "".to_string(),
             proxy_host: "".to_string(),
             proxy_port: 0,
             rules: vec![
@@ -247,6 +269,7 @@ mod tests {
             subnets: vec![
                 SubnetConfig {
                     ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.2.1/24").unwrap()),
+                    name: "".to_string(),
                     proxy_host: "wildcard_proxy".to_string(),
                     proxy_port: 0,
                     rules: vec![
@@ -262,6 +285,7 @@ mod tests {
                 },
                 SubnetConfig {
                     ip_range: IpRange::Subnet(Netv4Addr::from_str("192.168.1.1/24").unwrap()),
+                    name: "".to_string(),
                     proxy_host: "non_wildcard_proxy".to_string(),
                     proxy_port: 0,
                     rules: vec![

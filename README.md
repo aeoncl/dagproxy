@@ -26,6 +26,7 @@ Dag proxy will detect the ip range you are in and use the appropriate subnet con
       "ip_range": "10.0.0.0/24",
       "proxy_host": "upstream.proxy",
       "proxy_port": 8080,
+      "name": "Corporate VPN",
       "rules": {
         "subdomain.example.com": "DIRECT",
         "*": "PROXY"
@@ -35,6 +36,7 @@ Dag proxy will detect the ip range you are in and use the appropriate subnet con
       "ip_range": "11.0.0.0/24",
       "proxy_host": "upstream.proxy",
       "proxy_port": 8080,
+      "name": "Corporate Office",
       "rules": {
         "subdomain.example.com": "DIRECT",
         "*": "PROXY"

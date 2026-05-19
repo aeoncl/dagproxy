@@ -54,7 +54,7 @@ pub fn watch_networks(config: Config) -> (WatchHandle, NetworkWatchTransport) {
             return;
         }
 
-        println!("📡 Network configuration: {:?}", found_subnet.ip_range);
+        println!("📡 Network configuration: {} ({})", found_subnet.name, found_subnet.ip_range);
 
         {
             let mut network = cloned_current_subnet_config.lock().unwrap();

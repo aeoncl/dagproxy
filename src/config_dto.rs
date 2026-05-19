@@ -13,6 +13,7 @@ pub struct ConfigDto {
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct SubnetConfigDto {
     pub ip_range: String,
+    pub name: Option<String>,
     pub proxy_host: String,
     pub proxy_port: u32,
     pub rules: IndexMap<String, ForwardPolicyDto>,
@@ -64,9 +65,12 @@ impl TryInto<SubnetConfig> for SubnetConfigDto {
                 ),
             }
         };
+        
+        let name = self.name.unwrap_or(self.ip_range);
 
         Ok(SubnetConfig {
             ip_range,
+            name,
             proxy_host: self.proxy_host,
             proxy_port: self.proxy_port,
             rules,
@@ -97,6 +101,7 @@ mod tests {
         "ip_range": "10.0.0.0/24",
         "proxy_host": "upstream.proxy",
         "proxy_port": 8080,
+        "name": "VPN",
         "rules": {
           "subdomain.example.com": "DIRECT",
           "*": "PROXY"
@@ -122,8 +127,10 @@ mod tests {
 
         let first_subnet = &config_dto.subnets[0];
         assert_eq!(first_subnet.ip_range, "10.0.0.0/24");
+        assert_eq!(first_subnet.name, Some("VPN".to_string()));
 
         let second_subnet = &config_dto.subnets[1];
         assert_eq!(second_subnet.ip_range, "11.0.0.0/24");
+        assert_eq!(second_subnet.name, None);
     }
 }

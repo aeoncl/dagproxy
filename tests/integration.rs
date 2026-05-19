@@ -179,6 +179,7 @@ async fn start_dagproxy(subnet_config: SubnetConfig) -> (u16, Sender<SubnetConfi
 fn proxy_all_config(proxy_port: u16) -> SubnetConfig {
     SubnetConfig {
         ip_range: IpRange::Subnet(Netv4Addr::from_str("127.0.0.1/32").unwrap()),
+        name: "".to_string(),
         proxy_host: "127.0.0.1".to_string(),
         proxy_port: proxy_port as u32,
         rules: vec![(NoProxyItem::Wildcard, ForwardPolicy::Proxy)],
@@ -189,6 +190,7 @@ fn proxy_all_config(proxy_port: u16) -> SubnetConfig {
 fn direct_all_config() -> SubnetConfig {
     SubnetConfig {
         ip_range: IpRange::Subnet(Netv4Addr::from_str("127.0.0.1/32").unwrap()),
+        name: "".to_string(),
         proxy_host: String::new(),
         proxy_port: 0,
         rules: vec![(NoProxyItem::Wildcard, ForwardPolicy::Direct)],
@@ -206,6 +208,7 @@ fn mixed_rules_config(proxy_port: u16, direct_hosts: Vec<&str>) -> SubnetConfig 
 
     SubnetConfig {
         ip_range: IpRange::Subnet(Netv4Addr::from_str("127.0.0.1/32").unwrap()),
+        name: "".to_string(),
         proxy_host: "127.0.0.1".to_string(),
         proxy_port: proxy_port as u32,
         rules,
