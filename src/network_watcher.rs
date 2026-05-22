@@ -46,6 +46,7 @@ pub fn watch_networks(config: Config) -> (WatchHandle, NetworkWatchTransport) {
             .find_map(|(_, interface)| {
                 interface
                     .ipv4_ips()
+                    .filter(|ip| ip.is_private())
                     .find_map(|ipv4_ip| config.get_matching_config(&ipv4_ip))
             })
             .unwrap_or_default();
@@ -54,7 +55,11 @@ pub fn watch_networks(config: Config) -> (WatchHandle, NetworkWatchTransport) {
             return;
         }
 
-        println!("📡 Network configuration: {} ({})", found_subnet.name, found_subnet.ip_range);
+        if found_subnet != SubnetConfig::default() {
+            println!("📡 Network configuration: {} ({})", found_subnet.name, found_subnet.ip_range);
+        } else {
+            println!("📡 Network configuration: Direct");
+        }
 
         {
             let mut network = cloned_current_subnet_config.lock().unwrap();
