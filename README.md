@@ -51,7 +51,7 @@ Dag proxy will detect the ip range you are in and use the appropriate subnet con
 
 It's important to run it as a user service as it needs to access the `KRB5CCNAME` environment variable.
 
-### User service file 
+### Manual install
 
 `/home/user/.config/systemd/user/dagproxy.service`
 ```
@@ -66,7 +66,18 @@ Restart=on-failure
 RestartSec=5
 
 [Install]
+WantedBy=default.target
 ```
+
+### Setup via the .deb package
+
+The package installs the unit as a system-wide user unit at `/usr/lib/systemd/user/dagproxy.service`, pointed at a shared config file `/etc/dagproxy/config.json` (a `dpkg` conffile — your edits survive package upgrades, and `dpkg` will prompt if a new package version ships a conflicting default).
+
+```
+systemctl --user enable --now dagproxy
+```
+
+To customize the config, edit `/etc/dagproxy/config.json` (see [Config File](#config-file) above)
 
 ### Kerberos Config
 Set the `default_ccache_name` in `/etc/krb5.conf` to avoid aving to restart the service when the KRB token changes location.
@@ -94,7 +105,7 @@ rustup target add x86_64-pc-windows-gnu
 cargo build --release --target x86_64-pc-windows-gnu
 ```
 
-## Package a .deb 
+### Package a .deb 
 
 1. Build the linux binary
 2. Create the .deb package using cargo-deb
@@ -105,13 +116,13 @@ cargo install cargo-deb
 cargo deb
 ```
 
-## Testing the .deb
+### Testing the .deb
 
 ```
 sudo dpkg -i {{path/to/deb}}
 ```
 
-## Uninstalling the .deb
+### Uninstalling the .deb
 
 ```
 sudo dpkg -P dagproxy

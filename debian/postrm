@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "purge" ]; then
+    # Stopping/disabling the service already happened in prerm before the
+    # unit file was removed; here we just clean up the leftover config.
+    rm -rf /etc/dagproxy
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+
+        if command -v loginctl >/dev/null 2>&1; then
+            for user in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+                systemctl --user --machine="${user}@" daemon-reload >/dev/null 2>&1 || true
+            done
+        fi
+fi
+
+exit 0

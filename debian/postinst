@@ -1,0 +1,30 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+
+        # Pick up a new binary/unit on upgrade: restart the service for
+        # every currently logged-in user who already has it running.
+        # try-restart is a no-op for users who never enabled it, so this
+        # never starts the service where it wasn't already running.
+
+        if command -v loginctl >/dev/null 2>&1; then
+            for user in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+                systemctl --user --machine="${user}@" daemon-reload >/dev/null 2>&1 || true
+                systemctl --user --machine="${user}@" try-restart dagproxy.service >/dev/null 2>&1 || true
+            done
+        fi
+    fi
+
+    cat <<'EOF'
+
+DagProxy installed.
+
+  * Edit the config at:      /etc/dagproxy/config.json
+  * Enable the service with: systemctl --user enable --now dagproxy
+
+EOF
+fi
+
+exit 0

@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+
+        if command -v loginctl >/dev/null 2>&1; then
+            for user in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+                systemctl --user --machine="${user}@" stop dagproxy.service >/dev/null 2>&1 || true
+            done
+        fi
+
+        systemctl --global disable dagproxy.service >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

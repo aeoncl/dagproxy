@@ -1,0 +1,12 @@
+[Unit]
+Description=DagProxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/dagproxy -c /etc/dagproxy/config.json
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
