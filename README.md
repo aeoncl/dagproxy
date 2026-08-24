@@ -94,8 +94,27 @@ rustup target add x86_64-pc-windows-gnu
 cargo build --release --target x86_64-pc-windows-gnu
 ```
 
+## Package a .deb 
+
+1. Build the linux binary
+2. Create the .deb package using cargo-deb
+
+```
+cargo install cargo-deb
+# cd in the project's root directory
+cargo deb
+```
+
+## Testing the .deb
+
+```
+sudo dpkg -i {{path/to/deb}}
+```
+
 ## Build on Windows
 
 ```
+# Windows exe
 cargo build --release
+
 ```
