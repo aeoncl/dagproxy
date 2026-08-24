@@ -111,6 +111,12 @@ cargo deb
 sudo dpkg -i {{path/to/deb}}
 ```
 
+## Uninstalling the .deb
+
+```
+sudo dpkg -P dagproxy
+```
+
 ## Build on Windows
 
 ```

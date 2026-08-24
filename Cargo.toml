@@ -1,7 +1,8 @@
 [package]
 name = "dagproxy"
-version = "1.5.0-SNAPSHOT"
+version = "1.5.0"
 edition = "2024"
+description = "A local HTTP proxy that dispatches traffic through different configuration. Supports upstream proxy with kerberos auth with SPNego."
 
 [dependencies]
 netaddr2 = "0.10.0"
