@@ -1,6 +1,6 @@
 [package]
 name = "dagproxy"
-version = "0.1.0"
+version = "1.5.0-SNAPSHOT"
 edition = "2024"
 
 [dependencies]
@@ -19,3 +19,14 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 no-proxy = "0.3.7"
 rand = "0.10.2"
+
+[dev-dependencies]
+cargo-deb = "3.7.0"
+
+[package.metadata.deb]
+maintainer = "Christophe Lopez <c.lopez.dev@protonmail.com>"
+copyright = "2026, Christophe Lopez"
+license-file = ["LICENSE"]
+assets = [
+    ["target/release/dagproxy", "/usr/bin/", "755"]
+]
