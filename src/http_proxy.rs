@@ -95,12 +95,19 @@ impl ProxyTunnel {
 
                     let data = &dest_read_buffer[..bytes_read];
 
-                    self.source_socket.write_all(&data).await.unwrap();
+                    if let Err(err) = self.source_socket.write_all(&data).await {
+                        if err.kind() != std::io::ErrorKind::ConnectionReset {
+                            eprintln!("💻 ({}) Error writing to source: {}", &self.id, err);
+                        }
+                        break;
+                    }
 
                 },
                 from_source = self.source_socket.read(&mut source_read_buffer) => {
                     if let Err(err) = from_source {
-                        eprintln!("💻 ({}) Error reading from source: {}", &self.id, err);
+                        if err.kind() != std::io::ErrorKind::ConnectionReset {
+                            eprintln!("💻 ({}) Error reading from source: {}", &self.id, err);
+                        }
                         break;
                     }
 
@@ -141,13 +148,7 @@ impl ProxyTunnel {
     async fn initialize(&mut self, data: &[u8]) -> Result<(), anyhow::Error> {
         let (request_type, target_host) = parse_host_from_request(&data)?;
         let network_type = self.network_watcher.subnet_config();
-        if let Err(e) = self
-            .setup_dest_socket(network_type, &request_type, &target_host, data)
-            .await
-        {
-            self.source_socket.write_all(&http_407_response(&e)).await?;
-            return Err(e);
-        }
+        self.setup_dest_socket(network_type, &request_type, &target_host, data).await?;
         self.state = ConnectionState::Forwarding(target_host);
         Ok(())
     }
@@ -167,7 +168,15 @@ impl ProxyTunnel {
             ForwardPolicy::Proxy => {
                 let proxy = NetworkTarget::new(&subnet_config.proxy_host, subnet_config.proxy_port);
                 println!("💻 ({}) -> {} -> {}", &self.id, &proxy, &target_host);
-                self.dest_socket = Some(connect_to_proxy(&proxy, request_bytes).await?);
+
+                match connect_to_proxy(&proxy, request_bytes).await {
+                    Ok(tcp_stream) => self.dest_socket = Some(tcp_stream),
+                    Err(e) => {
+                        self.source_socket.write_all(&http_407_response(&e)).await?;
+                        return Err(e);
+                    }
+                }
+                
                 Ok(())
             }
             ForwardPolicy::Direct => {
