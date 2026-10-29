@@ -8,6 +8,9 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+pub(crate) const SUCCESS_CONNECT_RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
+
 pub(crate) enum RequestType {
     Connect,
     Other,
@@ -319,6 +322,14 @@ mod tests {
         // should return Err instead of panicking.
         let data = b"";
         let _ = parse_host_from_request(data);
+    }
+
+    // ─── SUCCESS_CONNECT_RESPONSE constant ────────────────────────
+
+    #[test]
+    fn success_connect_response_starts_with_http_200() {
+        assert!(SUCCESS_CONNECT_RESPONSE.starts_with(b"HTTP/1.1 200"));
+        assert!(SUCCESS_CONNECT_RESPONSE.ends_with(b"\r\n\r\n"));
     }
 
     // ─── http_407_response ────────────────────────────────────────

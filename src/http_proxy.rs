@@ -1,7 +1,7 @@
 use crate::config::{ForwardPolicy, SubnetConfig};
 use crate::http::{
-    NetworkTarget, connect_to_proxy, connect_with_retry, http_407_response,
-    parse_host_from_request,
+    NetworkTarget, RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry,
+    http_407_response, parse_host_from_request,
 };
 use crate::network_watcher::NetworkWatchTransport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -139,10 +139,12 @@ impl ProxyTunnel {
     }
 
     async fn initialize(&mut self, data: &[u8]) -> Result<(), anyhow::Error> {
-        let (_, target_host) = parse_host_from_request(&data)?;
+        let (request_type, target_host) = parse_host_from_request(&data)?;
         let network_type = self.network_watcher.subnet_config();
-        if let Err(e) =self.setup_dest_socket(network_type, &target_host, data)
-            .await {
+        if let Err(e) = self
+            .setup_dest_socket(network_type, &request_type, &target_host, data)
+            .await
+        {
             self.source_socket.write_all(&http_407_response(&e)).await?;
             return Err(e);
         }
@@ -153,8 +155,9 @@ impl ProxyTunnel {
     async fn setup_dest_socket(
         &mut self,
         subnet_config: SubnetConfig,
+        request_type: &RequestType,
         target_host: &NetworkTarget,
-        request_bytes: &[u8]
+        request_bytes: &[u8],
     ) -> Result<(), anyhow::Error> {
         let forward_policy = subnet_config
             .get_forward_policy(target_host.host())
@@ -169,7 +172,16 @@ impl ProxyTunnel {
             }
             ForwardPolicy::Direct => {
                 println!("💻 ({}) -> {}", &self.id, &target_host);
-                self.dest_socket = Some(connect_with_retry(target_host).await?);
+                let mut dest_socket = connect_with_retry(target_host).await?;
+                match request_type {
+                    RequestType::Connect => {
+                        self.source_socket.write_all(SUCCESS_CONNECT_RESPONSE).await?;
+                    }
+                    RequestType::Other => {
+                        dest_socket.write_all(request_bytes).await?;
+                    }
+                }
+                self.dest_socket = Some(dest_socket);
                 Ok(())
             }
             ForwardPolicy::PAC => {
