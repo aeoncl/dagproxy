@@ -86,9 +86,12 @@ async fn start_mock_proxy_server() -> u16 {
                             }
                         }
                     } else {
-                        // For non-CONNECT requests (plain HTTP proxy), just respond with 200 OK
-                        // and echo the request body back. This is a simplistic mock.
-                        let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+                        // For non-CONNECT requests (plain HTTP proxy), respond with 200 OK
+                        // and echo the received request back as the body. This is a simplistic mock.
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                            n, request
+                        );
                         client_sock.write_all(response.as_bytes()).await.unwrap();
                     }
                 });
@@ -476,15 +479,51 @@ async fn plain_http_get_forwarded_through_proxy() {
     );
     client.write_all(http_request.as_bytes()).await.unwrap();
 
-    // DagProxy opens a CONNECT tunnel to the upstream proxy, then forwards
-    // the raw request through it. The echo server at the end reflects the data.
-    // So we expect to receive back the request we sent (echoed through the tunnel).
+    // DagProxy sends the request to the upstream proxy as-is (no CONNECT tunnel).
+    // The mock proxy answers 200 and echoes the request it received as the body.
     let mut buf = [0u8; 2048];
     let n = client.read(&mut buf).await.unwrap();
     let response = String::from_utf8_lossy(&buf[..n]);
     assert!(
-        response.contains("GET"),
-        "Expected echo of our request through the proxy tunnel, got: {}",
+        response.starts_with("HTTP/1.1 200 OK"),
+        "Expected the proxy's own response, got: {}",
+        response
+    );
+    assert!(
+        response.contains(&format!("GET http://127.0.0.1:{}/test-path HTTP/1.1", echo_port)),
+        "Expected the proxy to receive our absolute-URI request, got: {}",
+        response
+    );
+    assert!(
+        !response.contains("CONNECT"),
+        "Plain HTTP must not be tunnelled with CONNECT, got: {}",
+        response
+    );
+}
+
+#[tokio::test]
+async fn plain_http_407_passed_to_client_when_no_krb() {
+    let reject_proxy_port = start_407_proxy_server().await;
+    let (dagproxy_port, _sender) = start_dagproxy(proxy_all_config(reject_proxy_port)).await;
+
+    let mut client = TcpStream::connect(format!("127.0.0.1:{}", dagproxy_port))
+        .await
+        .unwrap();
+
+    let http_request = "GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    client.write_all(http_request.as_bytes()).await.unwrap();
+
+    // Kerberos negotiation fails in a test environment, so the proxy's 407 is
+    // passed on to the client instead of closing the connection without a reply.
+    let mut buf = [0u8; 512];
+    let n = tokio::time::timeout(std::time::Duration::from_secs(5), client.read(&mut buf))
+        .await
+        .expect("no response within 5s")
+        .unwrap();
+    let response = String::from_utf8_lossy(&buf[..n]);
+    assert!(
+        response.starts_with("HTTP/1.1 407"),
+        "Expected the upstream 407 to be passed through, got: {}",
         response
     );
 }
