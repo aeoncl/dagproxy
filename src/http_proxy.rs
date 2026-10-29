@@ -167,7 +167,7 @@ impl ProxyTunnel {
             ForwardPolicy::Proxy => {
                 let proxy = NetworkTarget::new(&subnet_config.proxy_host, subnet_config.proxy_port);
                 println!("💻 ({}) -> {} -> {}", &self.id, &proxy, &target_host);
-                self.dest_socket = Some(connect_to_proxy(&proxy, target_host, request_bytes).await?);
+                self.dest_socket = Some(connect_to_proxy(&proxy, request_bytes).await?);
                 Ok(())
             }
             ForwardPolicy::Direct => {

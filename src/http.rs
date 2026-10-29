@@ -1,12 +1,11 @@
 use crate::kerberos::kerberos::negotiate_with_krb5;
-use anyhow::anyhow;
 use backon::ExponentialBuilder;
 use backon::Retryable;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::str::FromStr;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt};
 use tokio::net::TcpStream;
 
 pub(crate) const SUCCESS_CONNECT_RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
@@ -127,7 +126,6 @@ pub(crate) async fn connect_with_retry(target: &NetworkTarget) -> Result<TcpStre
 
 pub(crate) async fn connect_to_proxy(
     proxy: &NetworkTarget,
-    target: &NetworkTarget,
     request_bytes: &[u8]
 ) -> Result<TcpStream, anyhow::Error> {
     let mut proxy_stream = connect_with_retry(proxy).await?;
@@ -137,7 +135,7 @@ pub(crate) async fn connect_to_proxy(
     proxy_stream.flush().await?;
 
     let mut read_buffer = [0; 2048];
-    let mut bytes_read = proxy_stream.peek(&mut read_buffer).await?;
+    let bytes_read = proxy_stream.peek(&mut read_buffer).await?;
 
     let data = &read_buffer[..bytes_read];
 
@@ -164,6 +162,7 @@ pub(crate) async fn connect_to_proxy(
 
 #[cfg(test)]
 mod tests {
+    use anyhow::anyhow;
     use super::*;
 
     // ─── NetworkTarget::from_str ─────────────────────────────────
