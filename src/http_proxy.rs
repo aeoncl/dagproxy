@@ -3,6 +3,7 @@ use crate::http::{
     NetworkTarget, RequestType, SUCCESS_CONNECT_RESPONSE, connect_to_proxy, connect_with_retry,
     parse_host_from_request,
 };
+use crate::kerberos::kerberos::negotiate_with_krb5;
 use crate::network_watcher::NetworkWatchTransport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -48,6 +49,14 @@ struct ProxyTunnel {
     network_watcher: NetworkWatchTransport,
     dest_socket: Option<TcpStream>,
     state: ConnectionState,
+    pending_replay: Option<PendingReplay>,
+}
+
+/// A plain-HTTP request sent to the upstream proxy, kept until the proxy's first response so it
+/// can be resent after Kerberos negotiation if the proxy answers 407.
+struct PendingReplay {
+    proxy: NetworkTarget,
+    request: Vec<u8>,
 }
 
 impl ProxyTunnel {
@@ -59,6 +68,7 @@ impl ProxyTunnel {
             network_watcher,
             dest_socket: None,
             state: ConnectionState::Initializing,
+            pending_replay: None,
         }
     }
 
@@ -94,6 +104,18 @@ impl ProxyTunnel {
                     }
 
                     let data = &dest_read_buffer[..bytes_read];
+
+                    if let Some(pending) = self.pending_replay.take() {
+                        if data.starts_with(b"HTTP/1.1 407") {
+                            match self.replay_after_negotiate(pending).await {
+                                Ok(()) => continue,
+                                Err(err) => {
+                                    eprintln!("💻 ({}) Proxy negotiate failed, passing 407 to client: {}", &self.id, err);
+                                }
+                            }
+                        }
+                    }
+
                     self.source_socket.write_all(&data).await.unwrap();
 
                 },
@@ -127,6 +149,9 @@ impl ProxyTunnel {
                 Ok(())
             }
             ConnectionState::Forwarding(_) => {
+                if let Some(pending) = self.pending_replay.as_mut() {
+                    pending.request.extend_from_slice(data);
+                }
                 self.dest_socket
                     .as_mut()
                     .expect("to be here")
@@ -140,7 +165,8 @@ impl ProxyTunnel {
     async fn initialize(&mut self, data: &[u8]) -> Result<(), anyhow::Error> {
         let (request_type, target_host) = parse_host_from_request(&data)?;
         let network_type = self.network_watcher.subnet_config();
-        self.setup_dest_socket(network_type, &target_host).await?;
+        self.setup_dest_socket(network_type, &request_type, &target_host)
+            .await?;
         self.state = ConnectionState::Forwarding(target_host);
 
         match request_type {
@@ -150,6 +176,9 @@ impl ProxyTunnel {
                     .await?;
             }
             RequestType::Other => {
+                if let Some(pending) = self.pending_replay.as_mut() {
+                    pending.request.extend_from_slice(data);
+                }
                 self.dest_socket
                     .as_mut()
                     .expect("to be here")
@@ -164,6 +193,7 @@ impl ProxyTunnel {
     async fn setup_dest_socket(
         &mut self,
         subnet_config: SubnetConfig,
+        request_type: &RequestType,
         target_host: &NetworkTarget,
     ) -> Result<(), anyhow::Error> {
         let forward_policy = subnet_config
@@ -174,7 +204,21 @@ impl ProxyTunnel {
             ForwardPolicy::Proxy => {
                 let proxy = NetworkTarget::new(&subnet_config.proxy_host, subnet_config.proxy_port);
                 println!("💻 ({}) -> {} -> {}", &self.id, &proxy, &target_host);
-                self.dest_socket = Some(connect_to_proxy(&proxy, target_host).await?);
+                match request_type {
+                    RequestType::Connect => {
+                        self.dest_socket = Some(connect_to_proxy(&proxy, target_host).await?);
+                    }
+                    // The client's request is already in absolute-URI form, so send it to the proxy
+                    // as-is. Tunnelling it with CONNECT host:80 is rejected by some proxies
+                    // (e.g. Cisco Umbrella answers 400 Bad Request).
+                    RequestType::Other => {
+                        self.dest_socket = Some(connect_with_retry(&proxy).await?);
+                        self.pending_replay = Some(PendingReplay {
+                            proxy,
+                            request: Vec::new(),
+                        });
+                    }
+                }
                 Ok(())
             }
             ForwardPolicy::Direct => {
@@ -186,6 +230,17 @@ impl ProxyTunnel {
                 todo!("PAC resolution is not yet supported")
             }
         }
+    }
+
+    async fn replay_after_negotiate(&mut self, pending: PendingReplay) -> Result<(), anyhow::Error> {
+        println!("🤝 ({}) Received proxy 407, negotiating Kerberos", &self.id);
+        negotiate_with_krb5(&pending.proxy).await?;
+
+        println!("🤝 ({}) Proxy negotiate successfull, resending request", &self.id);
+        let mut proxy_stream = connect_with_retry(&pending.proxy).await?;
+        proxy_stream.write_all(&pending.request).await?;
+        self.dest_socket = Some(proxy_stream);
+        Ok(())
     }
 }
 
