@@ -8,12 +8,23 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-
-pub(crate) const SUCCESS_CONNECT_RESPONSE: &[u8] = b"HTTP/1.1 200 Connection established\r\n\r\n";
-
 pub(crate) enum RequestType {
     Connect,
     Other,
+}
+
+pub(crate) fn http_407_response(error: &anyhow::Error) -> Vec<u8> {
+    let body = format!("{error:#}\n");
+    format!(
+        "HTTP/1.1 407 Proxy Authentication Required\r\n\
+         Content-Type: text/plain; charset=utf-8\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {body}",
+        body.len()
+    )
+    .into_bytes()
 }
 
 pub(crate) fn parse_host_from_request(
@@ -114,16 +125,17 @@ pub(crate) async fn connect_with_retry(target: &NetworkTarget) -> Result<TcpStre
 pub(crate) async fn connect_to_proxy(
     proxy: &NetworkTarget,
     target: &NetworkTarget,
+    request_bytes: &[u8]
 ) -> Result<TcpStream, anyhow::Error> {
     let mut proxy_stream = connect_with_retry(proxy).await?;
     proxy_stream
-        .write_all(format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", target, target).as_bytes())
+        .write_all(request_bytes)
         .await?;
     proxy_stream.flush().await?;
 
     let mut read_buffer = [0; 2048];
+    let mut bytes_read = proxy_stream.peek(&mut read_buffer).await?;
 
-    let bytes_read = proxy_stream.read(&mut read_buffer).await?;
     let data = &read_buffer[..bytes_read];
 
     let result = if data.starts_with(b"HTTP/1.1 407") {
@@ -135,27 +147,13 @@ pub(crate) async fn connect_to_proxy(
 
         let mut proxy_stream = connect_with_retry(proxy).await?;
         proxy_stream
-            .write_all(
-                format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n\r\n", target, target).as_bytes(),
-            )
+            .write_all(request_bytes)
             .await?;
         proxy_stream.flush().await?;
 
         Ok(proxy_stream)
-    } else if data.starts_with(b"HTTP/1.1 2") {
-        Ok(proxy_stream)
     } else {
-        if bytes_read != 0 {
-            Err(anyhow!(
-                "Received Error from proxy: {}",
-                String::from_utf8_lossy(&data)
-            ))
-        } else {
-            Err(anyhow!(
-                "Proxy closed connection for target_host: {}",
-                target
-            ))
-        }
+        Ok(proxy_stream)
     };
 
     result
@@ -323,11 +321,31 @@ mod tests {
         let _ = parse_host_from_request(data);
     }
 
-    // ─── SUCCESS_CONNECT_RESPONSE constant ────────────────────────
+    // ─── http_407_response ────────────────────────────────────────
 
     #[test]
-    fn success_connect_response_starts_with_http_200() {
-        assert!(SUCCESS_CONNECT_RESPONSE.starts_with(b"HTTP/1.1 200"));
-        assert!(SUCCESS_CONNECT_RESPONSE.ends_with(b"\r\n\r\n"));
+    fn http_407_response_is_a_complete_http_response() {
+        let err = anyhow!("outer").context("Kerberos negotiation failed");
+        let bytes = http_407_response(&err);
+        let text = String::from_utf8(bytes).unwrap();
+
+        let (head, body) = text.split_once("\r\n\r\n").unwrap();
+        let mut lines = head.split("\r\n");
+        assert_eq!(lines.next(), Some("HTTP/1.1 407 Proxy Authentication Required"));
+        let headers: Vec<&str> = lines.collect();
+        assert!(headers.contains(&"Content-Type: text/plain; charset=utf-8"));
+        assert!(headers.contains(&"Connection: close"));
+        assert!(headers.contains(&format!("Content-Length: {}", body.len()).as_str()));
+        assert_eq!(body, "Kerberos negotiation failed: outer\n");
+    }
+
+    #[test]
+    fn http_407_response_parses_with_httparse() {
+        let bytes = http_407_response(&anyhow!("boom"));
+        let mut headers = [httparse::EMPTY_HEADER; 8];
+        let mut resp = httparse::Response::new(&mut headers);
+        let status = resp.parse(&bytes).unwrap();
+        assert!(status.is_complete());
+        assert_eq!(resp.code, Some(407));
     }
 }
