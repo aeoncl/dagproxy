@@ -28,7 +28,7 @@ copyright = "2026, Christophe Lopez"
 license-file = ["LICENSE"]
 maintainer-scripts = "debian"
 conf-files = ["/etc/dagproxy/config.json"]
-extended-description = "A local HTTP proxy that dispatches traffic through different configuration. Supports upstream proxy with kerberos auth with SPNego."
+extended-description = "A local HTTP proxy that dispatches traffic through different configuration. Supports upstream proxy with kerberos auth with SPNego. Repo: https://github.com/aeoncl/dagproxy"
 assets = [
     ["target/release/dagproxy", "/usr/bin/", "755"],
     ["packaging/dagproxy.service", "/usr/lib/systemd/user/", "644"],
