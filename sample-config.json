@@ -7,7 +7,7 @@
         "proxy_port": 8080,
         "rules": {
           "subdomain.example.com": "DIRECT",
-          "*": "PROXY"
+          "*": "DIRECT"
         }
     },
     {
@@ -16,7 +16,7 @@
         "proxy_port": 8080,
         "rules": {
           "subdomain.example.com": "DIRECT",
-          "*": "PROXY"
+          "*": "DIRECT"
         }
     }
   ]
