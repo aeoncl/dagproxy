@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# Older versions shipped /etc/dagproxy/config.json as a conffile. The new
+# package no longer ships it, so dpkg deletes it on upgrade if unmodified.
+# Keep a copy; postinst restores it.
+if [ "$1" = "upgrade" ] && [ -f /etc/dagproxy/config.json ]; then
+    cp -p /etc/dagproxy/config.json /etc/dagproxy/config.json.preupgrade
+fi
+
+exit 0

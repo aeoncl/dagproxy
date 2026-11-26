@@ -2,29 +2,69 @@
 set -e
 
 if [ "$1" = "configure" ]; then
-    if command -v systemctl >/dev/null 2>&1; then
+    # Restore the config preserved by preinst if dpkg removed it.
+    if [ -f /etc/dagproxy/config.json.preupgrade ]; then
+        if [ ! -f /etc/dagproxy/config.json ]; then
+            mv /etc/dagproxy/config.json.preupgrade /etc/dagproxy/config.json
+        else
+            rm -f /etc/dagproxy/config.json.preupgrade
+        fi
+    fi
 
-        # The unit is a user unit. Enable it globally so it starts at login
-        # for every user, then (re)start it for users already logged in so
-        # it runs right away and picks up a new binary/unit on upgrade.
-        systemctl --global enable dagproxy.service >/dev/null 2>&1 || true
+    running=0
 
-        if command -v loginctl >/dev/null 2>&1; then
-            for user in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+    if command -v systemctl >/dev/null 2>&1 && command -v loginctl >/dev/null 2>&1; then
+        users=$(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}')
+
+        # Is dagproxy already running for any logged-in user?
+        for user in $users; do
+            if systemctl --user --machine="${user}@" is-active --quiet dagproxy.service >/dev/null 2>&1; then
+                running=1
+                break
+            fi
+        done
+
+        # Not running: just make the new user unit visible.
+        if [ "$running" -eq 0 ]; then
+            for user in $users; do
                 systemctl --user --machine="${user}@" daemon-reload >/dev/null 2>&1 || true
-                systemctl --user --machine="${user}@" restart dagproxy.service >/dev/null 2>&1 || true
             done
         fi
     fi
 
-    cat <<'EOF'
+    if [ "$running" -eq 1 ]; then
+        cat <<'MSG'
 
-DagProxy installed & started.
+WARNING: DagProxy is already running; it was NOT restarted.
+To switch to the new version, run as your user:
 
-  * Edit the config at:      /etc/dagproxy/config.json
-  * Restart the service with: systemctl --user restart dagproxy
+  1. systemctl --user daemon-reload
+  2. sudo cp -n /etc/dagproxy/sample-config.json /etc/dagproxy/config.json
+     (only needed if /etc/dagproxy/config.json does not exist yet; edit it)
+  3. systemctl --user enable --now dagproxy
+     (or `systemctl --user restart dagproxy` if already enabled)
 
-EOF
+MSG
+    elif [ -z "$2" ]; then
+        cat <<'MSG'
+
+DagProxy was installed successfully.
+
+  1. Copy and edit the config:
+       sudo cp -n /etc/dagproxy/sample-config.json /etc/dagproxy/config.json
+  2. Enable and start the service as your user:
+       systemctl --user enable --now dagproxy
+
+MSG
+    else
+        cat <<'MSG'
+
+DagProxy was upgraded. Make sure /etc/dagproxy/config.json exists, then:
+
+  systemctl --user enable --now dagproxy
+
+MSG
+    fi
 fi
 
 exit 0

@@ -27,10 +27,10 @@ maintainer = "Christophe Lopez <c.lopez.dev@protonmail.com>"
 copyright = "2026, Christophe Lopez"
 license-file = ["LICENSE"]
 maintainer-scripts = "debian"
-conf-files = ["/etc/dagproxy/config.json"]
+depends = "libc6, libgssapi-krb5-2, libkrb5-3"
 extended-description = "A local HTTP proxy that dispatches traffic through different configuration. Supports upstream proxy with kerberos auth with SPNego. Repo: https://github.com/aeoncl/dagproxy"
 assets = [
     ["target/release/dagproxy", "/usr/bin/", "755"],
     ["packaging/dagproxy.service", "/usr/lib/systemd/user/", "644"],
-    ["sample-config.json", "/etc/dagproxy/config.json", "644"]
+    ["sample-config.json", "/etc/dagproxy/sample-config.json", "644"]
 ]
